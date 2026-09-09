@@ -1,0 +1,48 @@
+# ── secrets ───────────────────────────────────────────────────────────────────
+.env
+.env.*
+*.env
+!.env.example
+
+# ── python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.venv/
+venv/
+.pytest_cache/
+
+# ── node ──────────────────────────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+
+# ── generated artefacts (regenerate, don't commit) ────────────────────────────
+# data/graph is rebuilt in seconds by agentic/ingest/build_graph.py, and the
+# vector index by agentic/ingest/build_vectors.py. Committing them would put
+# derived data under review instead of the code that derives it.
+data/graph/
+data/vectors/
+data/cache/
+
+# ── large local data from the previous round (not part of this submission) ────
+data/raw/
+data/chunks/
+data/faiss/
+data/qa/*.log
+data/qa/*.pid
+data/ingest_progress.json
+
+# TigerGraph's own repo, cloned locally for reference only.
+graphrag/
+
+# ── run outputs ───────────────────────────────────────────────────────────────
+eval2/results/*.jsonl
+eval2/results/*.log
+!eval2/results/.gitkeep
+
+# ── misc ──────────────────────────────────────────────────────────────────────
+*.bin
+*_screenshot.png
+.DS_Store
+.git.old-backup/

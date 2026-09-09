@@ -1,0 +1,99 @@
+// Legal case-law graph schema: LegalCase vertices + real CITES edges (from
+// CourtListener's citation-map, see download_citations.py), plus a direct
+// multi-hop citation-traversal query.
+//
+// The full knowledge-graph schema is two entity types and two relationships:
+//   LegalCase --CITES--> LegalCase       (which case cites which; powers multi-hop)
+//   LegalCase --DECIDED_BY--> Court       (which court decided each case)
+// This file defines LegalCase + CITES + the queries; the Court vertex and
+// DECIDED_BY edge are added separately by add_court_schema.gsql / ingest_courts.py
+// so the citation graph and its queries stay independent of the court enrichment.
+//
+// This is deliberately separate from graphrag_queries.gsql's generic
+// Article/Chunk/Entity schema (LLM-based entity extraction). For legal
+// case law specifically, the citation graph IS the real relationship
+// structure -- traversing CITES edges is exactly the "multi-hop over
+// documents" GraphRAG is meant to provide, and it costs zero LLM calls to
+// build (structured metadata + a public citation-map file, not per-chunk
+// entity extraction), which matters given a limited Gemini budget.
+//
+// Install once:
+//   gsql -g LegalGraph scripts/legal_schema.gsql
+//   (or POST the body to /gsql/v1/statements, then GET /gsql/v1/queries/{name}/install)
+
+USE GRAPH LegalGraph
+
+CREATE SCHEMA_CHANGE JOB add_legal_schema FOR GRAPH LegalGraph {
+  ADD VERTEX LegalCase (
+    PRIMARY_ID id STRING,
+    title STRING,
+    case_name STRING,
+    court_id STRING,
+    court_name STRING,
+    court_type STRING,
+    year STRING,
+    text STRING
+  ) WITH STATS="OUTDEGREE_BY_EDGETYPE";
+  ADD DIRECTED EDGE CITES (FROM LegalCase, TO LegalCase);
+}
+
+RUN SCHEMA_CHANGE JOB add_legal_schema
+
+// Given one or more seed cases (matched by the caller from the question, e.g. by
+// case_name keyword), traverse CITES outward (what THIS case relies on) and inward
+// (what relies on THIS case) up to `hops` levels, returning every case touched with
+// its hop distance and direction -- this is the literal multi-hop chain
+// ("what did the case that struck down X rely on, and was that later distinguished")
+// that flat vector search over Basic RAG cannot follow.
+CREATE OR REPLACE QUERY citation_multihop_retrieve(
+    SET<STRING> seedCaseIds,
+    INT hops = 2,
+    INT maxPerHop = 15
+) FOR GRAPH LegalGraph SYNTAX V2 {
+
+  OrAccum @visited = false;
+  SumAccum<INT> @hop_distance;
+  SumAccum<INT> @direction_mask;  // bit 1 = reached via outgoing CITES (this case cites it), bit 2 = incoming (cited by it)
+
+  Frontier = {LegalCase.*};
+  Frontier = SELECT c FROM Frontier:c WHERE seedCaseIds.contains(c.case_id)
+             POST-ACCUM c.@visited = true, c.@hop_distance = 0;
+
+  Result = Frontier;
+
+  FOREACH i IN RANGE[1, hops] DO
+    Outgoing = SELECT t FROM Frontier:s -(CITES>:e)- LegalCase:t
+               WHERE t.@visited == false
+               POST-ACCUM t.@visited = true, t.@hop_distance = i, t.@direction_mask += 1
+               LIMIT maxPerHop;
+
+    Incoming = SELECT t FROM Frontier:s -(<CITES:e)- LegalCase:t
+               WHERE t.@visited == false
+               POST-ACCUM t.@visited = true, t.@hop_distance = i, t.@direction_mask += 2
+               LIMIT maxPerHop;
+
+    Frontier = Outgoing UNION Incoming;
+    Result = Result UNION Frontier;
+  END;
+
+  PRINT Result[
+    Result.case_id, Result.title, Result.case_name, Result.court_name,
+    Result.year, Result.text, Result.@hop_distance, Result.@direction_mask
+  ];
+}
+
+INSTALL QUERY citation_multihop_retrieve
+
+// Simple keyword-seed lookup: find LegalCase vertices whose case_name or title
+// contains the given (already-lowercased) substring -- used to resolve a
+// natural-language question into starting seed case(s) before calling
+// citation_multihop_retrieve.
+CREATE OR REPLACE QUERY find_case_by_keyword(STRING keyword, INT limit_n = 5) FOR GRAPH LegalGraph SYNTAX V2 {
+  Matches = SELECT c FROM LegalCase:c
+            WHERE lower(c.case_name) LIKE ("%" + keyword + "%")
+               OR lower(c.title) LIKE ("%" + keyword + "%")
+            LIMIT limit_n;
+  PRINT Matches[Matches.case_id, Matches.title, Matches.case_name, Matches.court_name, Matches.year];
+}
+
+INSTALL QUERY find_case_by_keyword

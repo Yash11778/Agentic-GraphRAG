@@ -1,0 +1,12 @@
+USE GRAPH LegalGraph
+
+CREATE SCHEMA_CHANGE JOB add_court_schema FOR GRAPH LegalGraph {
+  ADD VERTEX Court (
+    PRIMARY_ID name STRING,
+    court_name STRING,
+    court_type STRING
+  ) WITH STATS="OUTDEGREE_BY_EDGETYPE";
+  ADD DIRECTED EDGE DECIDED_BY (FROM LegalCase, TO Court);
+}
+
+RUN SCHEMA_CHANGE JOB add_court_schema

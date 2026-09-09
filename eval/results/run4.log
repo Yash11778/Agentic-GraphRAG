@@ -1,0 +1,100 @@
+Loaded 55 questions from /home/yash/Graph RAG/Graph RAG Updated/Graph RAG/graphrag-hackathon/data/qa/qa_pairs_legal_multihop.json
+Evaluating:   0%|          | 0/55 [00:00<?, ?it/s]/home/yash/Graph RAG/Graph RAG Updated/Graph RAG/graphrag-hackathon/.venv/lib/python3.14/site-packages/huggingface_hub/utils/tqdm.py:175: UserWarning: Cannot enable progress bars: environment variable `HF_HUB_DISABLE_PROGRESS_BARS=1` is set and has priority.
+  warnings.warn(
+Evaluating:   2%|▏         | 1/55 [00:18<16:58, 18.87s/it]Evaluating:   4%|▎         | 2/55 [00:30<12:38, 14.32s/it]Evaluating:   5%|▌         | 3/55 [00:40<10:50, 12.51s/it]Evaluating:   7%|▋         | 4/55 [00:53<10:44, 12.64s/it]Evaluating:   9%|▉         | 5/55 [01:06<10:44, 12.90s/it]Evaluating:  11%|█         | 6/55 [01:21<11:07, 13.63s/it]Evaluating:  13%|█▎        | 7/55 [01:31<09:50, 12.30s/it]Evaluating:  15%|█▍        | 8/55 [01:41<09:08, 11.66s/it]Evaluating:  16%|█▋        | 9/55 [01:49<08:07, 10.59s/it]Evaluating:  18%|█▊        | 10/55 [02:00<07:57, 10.61s/it]Evaluating:  20%|██        | 11/55 [02:11<07:48, 10.65s/it]Evaluating:  22%|██▏       | 12/55 [02:22<07:46, 10.85s/it]Evaluating:  24%|██▎       | 13/55 [02:33<07:39, 10.94s/it]Evaluating:  25%|██▌       | 14/55 [02:44<07:25, 10.86s/it]Evaluating:  27%|██▋       | 15/55 [02:54<07:04, 10.60s/it]Evaluating:  29%|██▉       | 16/55 [03:06<07:15, 11.17s/it]Evaluating:  31%|███       | 17/55 [03:17<07:01, 11.10s/it]Evaluating:  33%|███▎      | 18/55 [03:27<06:34, 10.66s/it]Evaluating:  35%|███▍      | 19/55 [03:38<06:27, 10.76s/it]Evaluating:  36%|███▋      | 20/55 [03:50<06:32, 11.21s/it]Evaluating:  38%|███▊      | 21/55 [04:00<06:13, 10.98s/it]Evaluating:  40%|████      | 22/55 [04:11<05:53, 10.70s/it]Evaluating:  42%|████▏     | 23/55 [04:29<06:54, 12.95s/it]Evaluating:  44%|████▎     | 24/55 [04:39<06:19, 12.24s/it]Evaluating:  45%|████▌     | 25/55 [04:49<05:47, 11.57s/it]Evaluating:  47%|████▋     | 26/55 [05:01<05:34, 11.55s/it]Evaluating:  49%|████▉     | 27/55 [05:10<05:03, 10.84s/it]Evaluating:  51%|█████     | 28/55 [05:24<05:14, 11.63s/it]Evaluating:  53%|█████▎    | 29/55 [05:34<04:54, 11.31s/it]Evaluating:  55%|█████▍    | 30/55 [05:46<04:44, 11.36s/it]Evaluating:  56%|█████▋    | 31/55 [05:57<04:35, 11.48s/it]Evaluating:  58%|█████▊    | 32/55 [06:08<04:21, 11.37s/it]Evaluating:  60%|██████    | 33/55 [06:19<04:05, 11.16s/it]Evaluating:  62%|██████▏   | 34/55 [06:31<04:00, 11.43s/it]Evaluating:  64%|██████▎   | 35/55 [06:41<03:39, 10.97s/it]Evaluating:  65%|██████▌   | 36/55 [06:52<03:28, 10.98s/it]Evaluating:  67%|██████▋   | 37/55 [07:05<03:30, 11.71s/it]Evaluating:  69%|██████▉   | 38/55 [07:16<03:13, 11.41s/it]Evaluating:  71%|███████   | 39/55 [07:28<03:03, 11.46s/it]Evaluating:  73%|███████▎  | 40/55 [07:38<02:48, 11.20s/it]Evaluating:  75%|███████▍  | 41/55 [07:50<02:36, 11.20s/it]Evaluating:  76%|███████▋  | 42/55 [07:59<02:20, 10.79s/it]Evaluating:  78%|███████▊  | 43/55 [08:10<02:07, 10.66s/it]Evaluating:  80%|████████  | 44/55 [08:23<02:05, 11.39s/it]Evaluating:  82%|████████▏ | 45/55 [08:34<01:52, 11.29s/it]Evaluating:  84%|████████▎ | 46/55 [08:47<01:47, 11.96s/it]Evaluating:  85%|████████▌ | 47/55 [09:00<01:36, 12.09s/it]Evaluating:  87%|████████▋ | 48/55 [09:11<01:21, 11.71s/it]Evaluating:  89%|████████▉ | 49/55 [09:21<01:08, 11.43s/it]Evaluating:  91%|█████████ | 50/55 [09:33<00:58, 11.63s/it]Evaluating:  93%|█████████▎| 51/55 [09:44<00:45, 11.37s/it]Evaluating:  95%|█████████▍| 52/55 [09:57<00:34, 11.64s/it]Evaluating:  96%|█████████▋| 53/55 [10:10<00:24, 12.11s/it]Evaluating:  98%|█████████▊| 54/55 [10:23<00:12, 12.38s/it]Evaluating: 100%|██████████| 55/55 [10:34<00:00, 11.99s/it]Evaluating: 100%|██████████| 55/55 [10:34<00:00, 11.53s/it]
+[transformers] [1mDistilBertModel LOAD REPORT[0m from: distilbert-base-uncased
+Key                     | Status     |  | 
+------------------------+------------+--+-
+vocab_layer_norm.weight | UNEXPECTED |  | 
+vocab_transform.weight  | UNEXPECTED |  | 
+vocab_layer_norm.bias   | UNEXPECTED |  | 
+vocab_transform.bias    | UNEXPECTED |  | 
+vocab_projector.bias    | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+[transformers] [1mDistilBertModel LOAD REPORT[0m from: distilbert-base-uncased
+Key                     | Status     |  | 
+------------------------+------------+--+-
+vocab_layer_norm.weight | UNEXPECTED |  | 
+vocab_transform.weight  | UNEXPECTED |  | 
+vocab_layer_norm.bias   | UNEXPECTED |  | 
+vocab_transform.bias    | UNEXPECTED |  | 
+vocab_projector.bias    | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+[transformers] [1mDistilBertModel LOAD REPORT[0m from: distilbert-base-uncased
+Key                     | Status     |  | 
+------------------------+------------+--+-
+vocab_layer_norm.weight | UNEXPECTED |  | 
+vocab_transform.weight  | UNEXPECTED |  | 
+vocab_layer_norm.bias   | UNEXPECTED |  | 
+vocab_transform.bias    | UNEXPECTED |  | 
+vocab_projector.bias    | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+[transformers] [1mDistilBertModel LOAD REPORT[0m from: distilbert-base-uncased
+Key                     | Status     |  | 
+------------------------+------------+--+-
+vocab_layer_norm.weight | UNEXPECTED |  | 
+vocab_transform.weight  | UNEXPECTED |  | 
+vocab_layer_norm.bias   | UNEXPECTED |  | 
+vocab_transform.bias    | UNEXPECTED |  | 
+vocab_projector.bias    | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+[transformers] [1mDistilBertModel LOAD REPORT[0m from: distilbert-base-uncased
+Key                     | Status     |  | 
+------------------------+------------+--+-
+vocab_layer_norm.weight | UNEXPECTED |  | 
+vocab_transform.weight  | UNEXPECTED |  | 
+vocab_layer_norm.bias   | UNEXPECTED |  | 
+vocab_transform.bias    | UNEXPECTED |  | 
+vocab_projector.bias    | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+[transformers] [1mDistilBertModel LOAD REPORT[0m from: distilbert-base-uncased
+Key                     | Status     |  | 
+------------------------+------------+--+-
+vocab_layer_norm.weight | UNEXPECTED |  | 
+vocab_transform.weight  | UNEXPECTED |  | 
+vocab_layer_norm.bias   | UNEXPECTED |  | 
+vocab_transform.bias    | UNEXPECTED |  | 
+vocab_projector.bias    | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+
+Saved: /home/yash/Graph RAG/Graph RAG Updated/Graph RAG/graphrag-hackathon/eval/results/eval_results.csv
+
+=== EVALUATION SUMMARY ===
+
+Judge source:
+judge_source
+gemini_strict    165
+
+Overall:
+  [llm_only] pass=1.8%  avg_tokens=609  avg_latency=3.84s
+  [basic_rag] pass=7.3%  avg_tokens=2281  avg_latency=2.19s
+  [graphrag] pass=50.9%  avg_tokens=1593  avg_latency=2.70s
+
+By hop count:
+  hop_count=2:
+    [llm_only] pass=2.5%  avg_tokens=599  avg_latency=3.89s
+    [basic_rag] pass=10.0%  avg_tokens=2254  avg_latency=2.13s
+    [graphrag] pass=50.0%  avg_tokens=1446  avg_latency=2.66s
+  hop_count=3:
+    [llm_only] pass=0.0%  avg_tokens=636  avg_latency=3.70s
+    [basic_rag] pass=0.0%  avg_tokens=2353  avg_latency=2.36s
+    [graphrag] pass=53.3%  avg_tokens=1985  avg_latency=2.81s
+
+Computing BERTScore (all pipelines)...
+  [llm_only] raw=0.7892  rescaled=0.3686
+  [basic_rag] raw=0.8089  rescaled=0.4274
+  [graphrag] raw=0.8566  rescaled=0.5703
+
+FINAL: basic_rag_pass=7.3%  graphrag_pass=50.9%  token_reduction=30.2%  bertscore_rescaled=0.5703

@@ -1,0 +1,30 @@
+# ── API + pipelines ──────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+requests
+numpy
+tiktoken
+
+# ── Pipeline 2 (Basic RAG): FAISS vector search ──────────────────
+faiss-cpu==1.13.2
+fastembed
+
+# ── LLM: Gemini (new google-genai SDK — `from google import genai`)
+google-genai
+
+# ── Evaluation: LLM-as-a-Judge (HF InferenceClient) + BERTScore (evaluate) ──
+# bert-score (used internally by the "bertscore" evaluate metric) needs torch.
+# For a CPU-only install (no GPU), use the CPU wheel:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch
+bert-score
+evaluate
+huggingface_hub
+pandas
+tqdm
+
+# ── Dataset build tooling: citation/court/case-name extraction ───
+eyecite
+courts-db
