@@ -10,13 +10,21 @@ oracle for testing the agent while cloud credentials are unavailable.
 from __future__ import annotations
 
 import json
-import re
-import unicodedata
+import sys
 from collections import defaultdict
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable, Protocol
+from typing import Any, Protocol
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from agentic.graph_schema import (  # noqa: E402  (fold re-exported)
+    AGGREGATE_ID_CAP,
+    coerce_value,
+    fold,
+)
+
 GRAPH_DIR = ROOT / "data/graph"
 
 # Comparison operators a predicate may use. Deliberately small and total: the
@@ -30,24 +38,21 @@ OPS = {
     "lt":  lambda a, b: a is not None and a < b,
     "lte": lambda a, b: a is not None and a <= b,
     "in":  lambda a, b: a in b,
-    "contains": lambda a, b: a is not None and str(b).lower() in str(a).lower(),
+    # Every whitespace-separated token of the value must occur in the stored
+    # string. A plain substring test is a special case of this (one token), and
+    # the extra tolerance is for the corpus's own typography: it writes
+    # "Xiaohaituo Bobsleigh and Luge TrackBeijing" and "Beijing Science and
+    # TechnologyUniversity Gymnasium", and a question that spaces those
+    # correctly must still reach them. The TigerGraph backend expands one
+    # contains predicate into one LIKE per token, so both read this the same way.
+    "contains": lambda a, b: a is not None and _tokens_in(str(b), str(a)),
     "exists":   lambda a, b: (a is not None) == bool(b),
 }
 
 
-def fold(text: str) -> str:
-    """Accent- and case-insensitive comparison key.
-
-    Athlete and venue names carry diacritics that a question may or may not
-    reproduce ("Kökény" vs "Kokeny"); folding both sides makes lookup robust
-    without loosening it into fuzzy matching.
-    """
-    if text is None:
-        return ""
-    s = unicodedata.normalize("NFKD", str(text))
-    s = "".join(c for c in s if not unicodedata.combining(c))
-    s = s.replace("–", "-").replace("—", "-").replace("’", "'")
-    return re.sub(r"\s+", " ", s.lower()).strip()
+def _tokens_in(needle: str, haystack: str) -> bool:
+    haystack = haystack.lower()
+    return all(tok in haystack for tok in needle.lower().split())
 
 
 class GraphBackend(Protocol):
@@ -56,12 +61,21 @@ class GraphBackend(Protocol):
     def neighbors(self, vtype: str, vid: str, edge_types: Iterable[str] | None,
                   direction: str) -> list[dict]: ...
     def vocabulary(self, vtype: str, field: str) -> list[str]: ...
+    def aggregate(self, vtype: str, predicates: list[tuple[str, str, Any]],
+                  field: str | None = None) -> dict[str, Any]: ...
+    def count(self, vtype: str) -> int: ...
+    def vector_search(self, query_vector: list[float], k: int) -> list[dict]: ...
 
 
 class LocalGraphBackend:
     """In-memory backend over the JSONL the ingestion step writes."""
 
     def __init__(self, graph_dir: Path = GRAPH_DIR):
+        # Vectors load on first use: most tool calls never touch them, and
+        # reading 30MB of embeddings to answer a graph query would be waste.
+        self._chunks: list[dict] | None = None
+        self._vectors = None      # unit-normalised, so a query is one dot product
+
         self.vertices: dict[str, dict[str, dict]] = defaultdict(dict)
         self.out: dict[tuple[str, str], list[dict]] = defaultdict(list)
         self.inc: dict[tuple[str, str], list[dict]] = defaultdict(list)
@@ -96,6 +110,7 @@ class LocalGraphBackend:
     def _match(v: dict, field: str, op: str, value: Any) -> bool:
         if op not in OPS:
             raise ValueError(f"unknown operator {op!r}; valid: {sorted(OPS)}")
+        value = coerce_value(field, value)
         actual = v.get(field)
         if isinstance(value, str) and op in ("eq", "ne", "contains", "in"):
             actual_cmp = fold(actual)
@@ -134,3 +149,76 @@ class LocalGraphBackend:
 
     def count(self, vtype: str) -> int:
         return len(self.vertices.get(vtype, {}))
+
+    def aggregate(self, vtype: str, predicates: list[tuple[str, str, Any]],
+                  field: str | None = None) -> dict[str, Any]:
+        """Reduce a filtered vertex set to scalars, without materialising it.
+
+        Returns every reduction at once because the agent almost always wants two
+        together: `matched` is the cardinality its coverage check compares against
+        (LOCKED-5), and max/min answer a superlative directly.
+
+        Rows whose aggregated field is absent are excluded from sum, max and min
+        but counted in `matched` -- "how many events are there" and "of those,
+        what is the largest stated value" are different questions.
+        """
+        rows = self.find(vtype, predicates)
+        values = []
+        if field:
+            values = [r.get(field) for r in rows]
+            values = [v for v in values if isinstance(v, (int, float))]
+        return {
+            "matched": len(rows),
+            "matched_ids": sorted(r["id"] for r in rows)[:AGGREGATE_ID_CAP],
+            "sum": sum(values) if values else None,
+            "max": max(values) if values else None,
+            "min": min(values) if values else None,
+        }
+
+    def vector_search(self, query_vector: list[float], k: int) -> list[dict]:
+        """Top-k chunks by cosine similarity, exhaustively.
+
+        A brute-force scan of 19,832 vectors is a few milliseconds of numpy and,
+        unlike an approximate index, returns exactly the true top k. That makes
+        this an oracle for the TigerGraph vector index rather than a second
+        approximation of it.
+        """
+        import numpy as np
+
+        if self._chunks is None:
+            from agentic.ingest.build_vectors import read_local
+
+            self._chunks, raw = read_local()
+            # Normalise once at load rather than on every query: the row norms
+            # of a 19,832 x 384 matrix were being recomputed per search, which
+            # was most of the search.
+            norms = np.linalg.norm(raw, axis=1, keepdims=True)
+            self._vectors = raw / np.where(norms == 0, 1, norms)
+
+        query = np.asarray(query_vector, dtype=np.float32)
+        query = query / (np.linalg.norm(query) or 1.0)
+        scores = self._vectors @ query
+        k = min(k, len(scores))
+        # Partial selection then a sort of k items, instead of sorting all rows.
+        top = np.argpartition(-scores, k - 1)[:k]
+        top = top[np.argsort(-scores[top])]
+        return [{"chunk": self._chunks[i], "score": float(scores[i])} for i in top]
+
+
+def get_backend(name: str | None = None) -> GraphBackend:
+    """The backend named by GRAPH_BACKEND, or by an explicit override.
+
+    The one place a backend is chosen. Tools and pipelines call this instead of
+    constructing a backend, so switching the whole system between the local
+    oracle and Savanna is one environment variable and cannot be done by halves.
+    """
+    from agentic.config import graph_backend_name
+
+    chosen = (name or graph_backend_name()).lower()
+    if chosen == "local":
+        return LocalGraphBackend()
+    if chosen == "tigergraph":
+        from agentic.tools.tigergraph_backend import TigerGraphBackend
+
+        return TigerGraphBackend()
+    raise ValueError(f"unknown backend {chosen!r}")

@@ -1,16 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    proxy: {
-      "/compare": "http://localhost:8080",
-      "/query": "http://localhost:8080",
-      "/results": "http://localhost:8080",
-      "/health": "http://localhost:8080",
-      "/ready": "http://localhost:8080",
-      "/debug": "http://localhost:8080",
-    },
-  },
-});
+// No dev proxy: the dashboard is static and reads the generated report.json out
+// of public/, so what it shows is always what is committed in the repository.
+export default defineConfig({ plugins: [react()] });

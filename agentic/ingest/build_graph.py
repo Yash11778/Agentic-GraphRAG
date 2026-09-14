@@ -22,8 +22,14 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from agentic.ingest.parse_infobox import (
-    OLYMPIC_MARKER, _NAME_PREFIXES, infobox_type, normalize_event_name, parse_count,
-    parse_games, parse_infobox, parse_title,
+    _NAME_PREFIXES,
+    infobox_type,
+    is_olympic_event,
+    normalize_event_name,
+    parse_count,
+    parse_games,
+    parse_infobox,
+    parse_title,
 )
 
 CORPUS = ROOT / "hackathon-resources/corpus/corpus.jsonl"
@@ -121,14 +127,14 @@ def build():
         doc = json.loads(line)
         n_docs += 1
         fields = parse_infobox(doc["text"])
-        is_event = doc["text"].startswith(OLYMPIC_MARKER)
+        is_event = is_olympic_event(doc["text"])
 
         if not is_event:
             # Distractor documents (films, people, companies) still become Document
             # vertices so vector hits on them can be traced back and counted as the
             # false positives they are.
             add_vertex("Document", doc["doc_id"], title=doc["title"], url=doc.get("url", ""),
-                       infobox=infobox_type(doc["text"]) or "", is_event=False,
+                       infobox=infobox_type(doc["text"]) or "",
                        approx_tokens=doc.get("approx_tokens", 0))
             continue
 
@@ -169,7 +175,6 @@ def build():
             win_value=fields.get("win_value"),
             url=doc.get("url", ""),
             approx_tokens=doc.get("approx_tokens", 0),
-            is_event=True,
             **dates,
         )
         for field, present in (("venue", fields.get("venue")), ("competitors", competitors),
@@ -223,17 +228,17 @@ def build():
     for (vtype, vid), v in vertices.items():
         if vtype == "Games":
             games_by_season[v["season"]][v["year"]] = vid
-    for season, by_year in games_by_season.items():
+    for by_year in games_by_season.values():
         years = sorted(by_year)
-        for prev_year, year in zip(years, years[1:]):
+        for prev_year, year in zip(years, years[1:], strict=False):
             add_edge("PRECEDED_BY", "Games", by_year[year], "Games", by_year[prev_year],
                      gap_years=year - prev_year)
 
     # Event edition chain.
     n_chain = 0
-    for key, by_year in chains.items():
+    for by_year in chains.values():
         years = sorted(by_year)
-        for prev_year, year in zip(years, years[1:]):
+        for prev_year, year in zip(years, years[1:], strict=False):
             add_edge("PRECEDED_BY", "Event", by_year[year], "Event", by_year[prev_year],
                      gap_years=year - prev_year)
             n_chain += 1

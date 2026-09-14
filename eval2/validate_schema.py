@@ -22,7 +22,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agentic.ingest.parse_infobox import (
-    OLYMPIC_MARKER, parse_count, parse_infobox, parse_title,
+    is_olympic_event,
+    parse_count,
+    parse_infobox,
+    parse_title,
 )
 
 CORPUS = ROOT / "hackathon-resources/corpus/corpus.jsonl"
@@ -42,7 +45,7 @@ def load():
     for line in CORPUS.open(encoding="utf-8"):
         d = json.loads(line)
         d["fields"] = parse_infobox(d["text"])
-        d["is_event"] = d["text"].startswith(OLYMPIC_MARKER)
+        d["is_event"] = is_olympic_event(d["text"])
         d["parsed_title"] = parse_title(d["title"]) or {}
         docs[d["doc_id"]] = d
     qs = [json.loads(l) for l in PUBLIC.open(encoding="utf-8")]

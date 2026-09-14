@@ -1,0 +1,10 @@
+# Runtime
+groq>=0.32              # answer generation for all three pipelines
+pyTigerGraph>=1.8       # Savanna graph + vector storage
+fastembed>=0.8          # local ONNX embeddings; no API key, no per-call cost
+tiktoken>=0.13          # context-token accounting only (see agentic/llm.py)
+python-dotenv>=1.2
+numpy>=2.0
+
+# Development
+pytest>=8.0

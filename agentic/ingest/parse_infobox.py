@@ -36,13 +36,29 @@ def infobox_type(text: str) -> str | None:
     return m.group(1) if m else None
 
 
-def parse_infobox(text: str) -> dict[str, str]:
-    """Key/value pairs from the leading infobox block.
+def is_olympic_event(text: str) -> bool:
+    """Whether the document carries an Olympic event infobox anywhere.
 
-    Stops at the first blank line: that is where the infobox ends and prose
-    begins, and prose lines are never indented `key: value` pairs.
+    Not `startswith`. Twenty-five tennis articles open with a second infobox --
+    `[Infobox tennis tournament event]` -- and carry the Olympic one below it. A
+    leading-block-only test drops every one of them into the distractor pile,
+    taking their venues, dates and medals with them.
+    """
+    return OLYMPIC_MARKER in text
+
+
+def parse_infobox(text: str) -> dict[str, str]:
+    """Key/value pairs from the Olympic infobox block.
+
+    Starts at the Olympic marker wherever it appears, and stops at the first
+    blank line after it: that is where the infobox ends and prose begins, and
+    prose lines are never indented `key: value` pairs. Documents with no Olympic
+    marker are parsed from their leading block instead, which is all a distractor
+    needs.
     """
     fields: dict[str, str] = {}
+    if OLYMPIC_MARKER in text:
+        text = text[text.index(OLYMPIC_MARKER):]
     lines = text.split("\n")
     if not lines or not _INFOBOX_RE.match(lines[0]):
         return fields

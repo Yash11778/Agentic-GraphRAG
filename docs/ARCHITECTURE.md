@@ -55,8 +55,9 @@ retrieval quality underneath is not a benchmark of agentic reasoning.
 ### [LOCKED-4] Ingestion is deterministic, with an LLM fallback that is not used here
 Infoboxes are structured key-value text; titles follow `Sport at the YEAR Season
 Olympics – Event`. Parsing is rule-based: zero LLM cost, ~100% field fidelity.
-An LLM extraction path exists in `agentic/ingest/llm_extract.py` for unstructured
-corpora (the bring-your-own-data bonus) but is **not** on the scored path.
+An LLM extraction path for unstructured corpora (the bring-your-own-data bonus) is
+optional and, if built, stays **off** the scored path. It is not built today, and
+the README does not claim otherwise.
 
 ### [LOCKED-5] No answer is emitted from an incomplete evidence set
 For any question requiring enumeration, the agent asks the graph for the expected
@@ -72,6 +73,13 @@ path. A retrieval miss is `status="insufficient_evidence"` and scores as wrong.
 ### [LOCKED-7] Equal generation budget across pipelines
 Same model, same temperature, same max output tokens for all three. Token deltas
 must come from retrieval precision, not from one pipeline being allowed to say less.
+
+Enforced mechanically: `agentic/config.py` is the only place these are read and
+`agentic/llm.py::complete` the only place they are applied, so a pipeline cannot
+quietly widen its own budget. Current setting is Groq `openai/gpt-oss-120b`,
+temperature 0, 1024 output tokens, reasoning effort `low`. gpt-oss bills hidden
+reasoning as output tokens, which makes reasoning effort part of the budget rather
+than a free knob.
 
 ---
 
@@ -120,7 +128,8 @@ must come from retrieval precision, not from one pipeline being allowed to say l
 
 `agentic/ingest/parse_infobox.py`   parse infobox block → dict
 `agentic/ingest/build_graph.py`     docs → vertices.jsonl + edges.jsonl
-`agentic/ingest/load_tigergraph.py` bulk load into TigerGraph
+`agentic/ingest/schema.gsql`        the graph schema, one schema-change job
+`agentic/ingest/load_tigergraph.py` schema + batched REST upsert, count-verified
 `agentic/ingest/build_vectors.py`   chunk + embed → TigerGraph Vector DB
 
 Normalisation rules (all deterministic, all unit-tested):
@@ -135,6 +144,13 @@ Normalisation rules (all deterministic, all unit-tested):
 Coverage measured on the 2,162 Olympic docs: games/event/gold 100%, date 98.9%,
 competitors 98.5%, nations 98.4%, venue 96.3%, next 97.6%, prev 93.4%.
 Missing fields are recorded as absent, never imputed.
+
+**Absence across backends.** TigerGraph has no NULL for a primitive attribute, so
+the loader writes `-1` for an absent INT and `""` for an absent STRING, and the
+TigerGraph backend maps both back to `None` on read. Without that round trip a
+predicate such as `competitors > 0` would match the 32 events whose competitor
+count the corpus never stated -- a wrong aggregate that nothing downstream could
+detect.
 
 ---
 
@@ -290,6 +306,113 @@ accuracy gain vs token cost per question type, the chart that states the finding
 | Hidden question needs an attribute we did not model | vector_search + doc_fetch remain a fallback on every path |
 | Agent looks "better" only because it has better tools | LOCKED-3: shared tool layer |
 | Graph makes the task trivial, undermining the agent story | Honest finding, reported as such: the agent's value is planning and coverage verification, not retrieval it alone can do |
+
+---
+
+## 11b. Implementation notes — where the build differs from this spec, and why
+
+Recorded here because §0 says a LOCKED decision may not drift silently. None of
+these changes a locked decision; each is a correction found while building.
+
+**Trace lives in `agentic/pipelines/base.py`, not `harness/trace.py`.** All three
+pipelines emit the same `TraceStep`, and the RAG baseline must not import the
+agent harness to do it. One definition, one file, no duplicate schema.
+
+**The coverage gate is keyed by predicate signature.** §6 describes coverage as
+"enumerated set size == expected cardinality". Implemented as a single global
+comparison it is wrong: a count of 238 events in 2012 has nothing to say about a
+later one-row lookup for the largest of them, and the gate blocked every
+superlative answer. It now compares a listing against a count **of the same
+predicates**, and fires only when the agent enumerated the set it is answering
+from. Aggregation answers computed in-database are not gated at all -- the
+database did the enumerating.
+
+**Progress means usable data, not new documents.** `graph_aggregate` cites no
+document and is the most informative call in the system. Counting only new
+documents made every counting question stop as `no_progress`. A repeat of a call
+already made still counts as standing still.
+
+**Only retrieval steps can stall a run.** A rejected generation or a coverage
+push-back is bookkeeping. Counting those toward `no_progress` ended runs that had
+made one real attempt.
+
+**A malformed tool call is recoverable.** The provider validates tool arguments
+and rejects a bad generation with a 400 before it reaches us. That is the model's
+mistake and it can correct it, so it is surfaced as a response, recorded in the
+trace, and answered -- not raised.
+
+**Ingestion: the Olympic infobox is not always the first block.** Twenty-five
+tennis articles open with `[Infobox tennis tournament event]` and carry the
+Olympic infobox below it. The original `startswith` test dropped all 25 into the
+distractor pile with their venues, dates and medals. Event count went from 2,162
+to 2,187 when fixed. Coverage percentages in §3 are unchanged; they were measured
+over the events that parsed.
+
+**TigerGraph specifics found by testing, not documentation.** `getAttr` on an
+edge type that lacks the attribute discards the whole accumulated row silently,
+so the neighbour query branches by edge type. The undirected form `-(:e)-`
+reports every edge twice, once under each name, losing direction; `-(_>:e)-` does
+not. A vector attribute cannot be added in the same schema-change job that
+creates its vertex. Vector search runs only in an installed query, never an
+interpreted one.
+
+**Predicate values are coerced in one place.** The planner writes a numeric
+threshold as a string about half the time (`"63"`). The TigerGraph backend
+always converted it; the local backend compared a string against an integer,
+got a `TypeError`, and returned False for every row -- a count of zero, with
+`status="ok"`. Two aggregation questions were lost to it, and it was invisible
+because the two backends disagreed only for that input shape.
+`graph_schema.coerce_value` is now called by both, so a predicate means the same
+thing wherever it runs.
+
+**`contains` is token-wise.** The corpus writes some venue names with joined
+words (`Xiaohaituo Bobsleigh and Luge TrackBeijing`, `Beijing Science and
+TechnologyUniversity Gymnasium`), and a question that spaces them correctly
+could not reach them by substring. `contains` now requires every
+whitespace-separated token of the value to occur in the stored string; the
+TigerGraph backend expands one predicate into one `LIKE` per token, applied in
+sequence, which is the same AND. A single-token value is the old substring
+test, so nothing that matched before stops matching. Verified against Savanna:
+`validate_backends.py` agrees on 35/35 cases including three added for these
+semantics.
+
+**A field the type lacks is an error, not an empty result.** Filtering `Games`
+by `title` returned nothing, and the planner's loosening rule then spent two
+more steps on a filter that could never match. `VERTEX_FIELDS` lists what each
+type carries; the tool layer rejects the call with the real field list, and the
+planner corrects in one step. The same table generates the field guide in the
+tool schema, so the two cannot drift.
+
+**A count of zero is `empty`.** `graph_aggregate` returned `{"matched": 0}` as
+`status="ok"`, so the planner read zero as an answer rather than as a filter
+that needs loosening. It is now reported as empty, with the same recovery cue a
+listing gives.
+
+**Tool results are rendered compactly.** A vertex row rendered as full JSON is
+~600 characters, most of it keys and bookkeeping (`url`, `approx_tokens`, the
+`_key` companions). A 700-token window therefore held four rows, and the planner
+learned to pass `max_results=5` -- which is how the right event, sixth of six at
+one venue on one day, was never seen. Rows are now rendered without the noise
+fields and cut at a row boundary with a count of what was hidden; fourteen fit.
+
+**The verbatim check.** The benchmark scores an exact string and the corpus
+writes team medallists as one unbroken string. When the model's answer differs
+from a string in a cited document only in separators, case or accents (compared
+with `graph_schema.squash`, which strips everything but letters and digits), the
+stored string is the answer, and the substitution is recorded as a trace step.
+It never fires on a difference in a letter or a digit, and it is not question
+aware. Titles and venues are covered as well as medal cells, which also handles
+the model's curly apostrophes.
+
+**Only retrieval steps count toward `unrecoverable`.** A malformed tool call is
+recorded as an error step, and it was counted alongside empty filters toward the
+three-failure stop, so one bad generation plus two empty filters ended a run
+that had made two real attempts. It is now bookkeeping, like the coverage gate.
+
+**Latency is reported net of throttling.** `PipelineResult.throttled_s` records
+time slept on the provider's rate limit; the scorer reports `active_s` and the
+median of it. A mean over a throttled run described the free tier's queue, not
+the system.
 
 ---
 

@@ -22,10 +22,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agentic.ingest.parse_infobox import normalize_event_name
-from agentic.tools.backend import LocalGraphBackend, fold
+from agentic.tools.backend import fold, get_backend
 
 PUBLIC = ROOT / "hackathon-resources/questions/eval_public.jsonl"
-B = LocalGraphBackend()
+
+# Defaults to GRAPH_BACKEND; `--backend tigergraph` re-runs the same ceiling
+# against Savanna, which is how the 99% is shown to be a property of the graph
+# rather than of the local JSONL.
+B = get_backend(sys.argv[2] if len(sys.argv) > 2 and sys.argv[1] == "--backend" else None)
 
 SPORTS = {fold(s): s for s in B.vocabulary("Sport", "name")}
 SEASONS = ("Summer", "Winter")

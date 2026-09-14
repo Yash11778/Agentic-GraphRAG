@@ -1,0 +1,20 @@
+[project]
+name = "agentic-graphrag"
+version = "1.0.0"
+description = "Agentic GraphRAG over TigerGraph: RAG vs GraphRAG vs an agentic investigation, benchmarked on one corpus"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["frontend", "data", "hackathon-resources"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+# E402: every entry point puts the repo root on sys.path before its imports.
+# E501: prose-heavy docstrings; the code itself is kept under 100 columns.
+ignore = ["E402", "E501", "E741"]

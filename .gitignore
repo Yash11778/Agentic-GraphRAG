@@ -25,24 +25,16 @@ data/graph/
 data/vectors/
 data/cache/
 
-# ── large local data from the previous round (not part of this submission) ────
-data/raw/
-data/chunks/
-data/faiss/
-data/qa/*.log
-data/qa/*.pid
-data/ingest_progress.json
+# ── run logs (the result rows themselves are committed; see data/results) ─────
+data/results/*.log
+data/results/*.tmp
 
-# TigerGraph's own repo, cloned locally for reference only.
-graphrag/
-
-# ── run outputs ───────────────────────────────────────────────────────────────
-eval2/results/*.jsonl
-eval2/results/*.log
-!eval2/results/.gitkeep
+# ── submission material kept out of the public repo ─────────────────────────
+docs/diagrams/
+docs/DEMO_SCRIPT.md
 
 # ── misc ──────────────────────────────────────────────────────────────────────
+.ruff_cache/
 *.bin
 *_screenshot.png
 .DS_Store
-.git.old-backup/

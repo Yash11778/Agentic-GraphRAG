@@ -1,0 +1,247 @@
+// Generic graph primitives (docs/ARCHITECTURE.md §5, LOCKED-1 and LOCKED-2).
+//
+// Five queries, none of which knows anything about a question type. They take a
+// vertex type and a predicate list and nothing else, so an unseen phrasing in the
+// hidden set composes out of the same primitives the public set uses. There is
+// deliberately no `answer_aggregation_question` here and there never will be.
+//
+// Counting, comparison and argmax run HERE, in the database, not in the model
+// (LOCKED-2): generative counting over 43 documents is both less accurate and
+// far more expensive than one query.
+//
+// Predicate encoding. Predicates arrive as three parallel lists — fields, ops,
+// values — because GSQL cannot take a list of tuples as a parameter. The op name
+// carries the type: `s_` ops compare strings, `i_` ops compare integers. Values
+// are always strings and are converted by the op.
+//
+//   s_eq  s_ne  s_contains  s_exists  s_absent
+//   i_eq  i_ne  i_gt  i_gte  i_lt  i_lte
+//
+// String predicates are expected to name a `_fold` attribute and to carry an
+// already-folded value; see agentic/graph_schema.py. GSQL's lower() folds case
+// but not accents, so the fold happens once at load time instead.
+//
+// Absence. -1 for an INT and "" for a STRING mean "the corpus never said". Every
+// integer comparison excludes the sentinel explicitly, so `date_start < 10` can
+// never match an event whose date was missing.
+
+USE GRAPH {graph}
+
+CREATE OR REPLACE QUERY vertex_get(STRING vtype, STRING vid) FOR GRAPH {graph} SYNTAX v2 {
+  All = {ANY};
+  R = SELECT s FROM All:s WHERE s.type == vtype AND s.id == vid;
+  PRINT R;
+}
+
+CREATE OR REPLACE QUERY vertex_filter(
+    STRING vtype,
+    LIST<STRING> fields, LIST<STRING> ops, LIST<STRING> vals,
+    INT max_results = 0
+) FOR GRAPH {graph} SYNTAX v2 {
+  // GSQL will not index a LIST parameter directly, so it is copied into an
+  // accumulator first. The three lists are index-aligned.
+  ListAccum<STRING> @@f, @@o, @@v;
+  @@f += fields; @@o += ops; @@v += vals;
+
+  All = {ANY};
+  R = SELECT s FROM All:s WHERE s.type == vtype;
+
+  // Each predicate narrows the previous result set. Applying them in sequence
+  // rather than as one boolean expression is what lets the predicate list be
+  // any length the planner chooses.
+  FOREACH i IN RANGE[0, @@f.size() - 1] DO
+    STRING fld = @@f.get(i);
+    STRING op  = @@o.get(i);
+    STRING val = @@v.get(i);
+    CASE op
+      WHEN "s_eq" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") == val;
+      WHEN "s_ne" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") != val;
+      WHEN "s_contains" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") LIKE "%" + val + "%";
+      WHEN "s_exists" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") != "";
+      WHEN "s_absent" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") == "";
+      WHEN "i_eq" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "INT") != -1
+                                AND s.getAttr(fld, "INT") == str_to_int(val);
+      WHEN "i_ne" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "INT") != -1
+                                AND s.getAttr(fld, "INT") != str_to_int(val);
+      WHEN "i_gt" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "INT") != -1
+                                AND s.getAttr(fld, "INT") > str_to_int(val);
+      WHEN "i_gte" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "INT") != -1
+                                AND s.getAttr(fld, "INT") >= str_to_int(val);
+      WHEN "i_lt" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "INT") != -1
+                                AND s.getAttr(fld, "INT") < str_to_int(val);
+      WHEN "i_lte" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "INT") != -1
+                                AND s.getAttr(fld, "INT") <= str_to_int(val);
+    END;
+  END;
+
+  IF max_results > 0 THEN
+    R = SELECT s FROM R:s LIMIT max_results;
+  END;
+  PRINT R;
+}
+
+CREATE OR REPLACE QUERY vertex_aggregate(
+    STRING vtype,
+    LIST<STRING> fields, LIST<STRING> ops, LIST<STRING> vals,
+    STRING agg_op, STRING agg_field = ""
+) FOR GRAPH {graph} SYNTAX v2 {
+  // Same predicate machinery as vertex_filter, then one reduction. The agent
+  // uses `count` to learn the expected cardinality of an enumeration before it
+  // decides whether its evidence is complete (LOCKED-5), and max/min to answer
+  // a superlative without reading 43 documents into the context window.
+  ListAccum<STRING> @@f, @@o, @@v;
+  @@f += fields; @@o += ops; @@v += vals;
+  SumAccum<INT> @@total;
+  MaxAccum<INT> @@maximum;
+  MinAccum<INT> @@minimum;
+  SumAccum<INT> @@matched;
+  // The ids of the counted rows, so an aggregate answer can cite the documents
+  // it rests on. Returned in full and capped by the backend after sorting: a cap
+  // applied here would take an arbitrary subset, and the local backend would take
+  // a different one, so the two would stop comparing equal for no real reason.
+  ListAccum<STRING> @@ids;
+
+  All = {ANY};
+  R = SELECT s FROM All:s WHERE s.type == vtype;
+
+  FOREACH i IN RANGE[0, @@f.size() - 1] DO
+    STRING fld = @@f.get(i);
+    STRING op  = @@o.get(i);
+    STRING val = @@v.get(i);
+    CASE op
+      WHEN "s_eq" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") == val;
+      WHEN "s_ne" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") != val;
+      WHEN "s_contains" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") LIKE "%" + val + "%";
+      WHEN "s_exists" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") != "";
+      WHEN "s_absent" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") == "";
+      WHEN "i_eq" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "INT") != -1
+                                AND s.getAttr(fld, "INT") == str_to_int(val);
+      WHEN "i_ne" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "INT") != -1
+                                AND s.getAttr(fld, "INT") != str_to_int(val);
+      WHEN "i_gt" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "INT") != -1
+                                AND s.getAttr(fld, "INT") > str_to_int(val);
+      WHEN "i_gte" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "INT") != -1
+                                AND s.getAttr(fld, "INT") >= str_to_int(val);
+      WHEN "i_lt" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "INT") != -1
+                                AND s.getAttr(fld, "INT") < str_to_int(val);
+      WHEN "i_lte" THEN
+        R = SELECT s FROM R:s WHERE s.getAttr(fld, "INT") != -1
+                                AND s.getAttr(fld, "INT") <= str_to_int(val);
+    END;
+  END;
+
+  // Rows whose aggregated field is absent are excluded from max/min/sum but not
+  // from count: "how many events are there" and "of those, what is the largest
+  // stated field" are different questions and must not silently become one.
+  R = SELECT s FROM R:s
+      ACCUM @@matched += 1,
+            @@ids += s.id,
+            CASE WHEN agg_field != "" AND s.getAttr(agg_field, "INT") != -1 THEN
+              @@total += s.getAttr(agg_field, "INT"),
+              @@maximum += s.getAttr(agg_field, "INT"),
+              @@minimum += s.getAttr(agg_field, "INT")
+            END;
+
+  // `sum`, `max`, `min` and `values` are reserved words in a PRINT alias, hence
+  // the agg_ prefix on the result keys.
+  PRINT agg_op AS agg_op;
+  PRINT @@matched AS matched;
+  PRINT @@total AS agg_sum;
+  PRINT @@maximum AS agg_max;
+  PRINT @@minimum AS agg_min;
+  PRINT @@ids AS matched_ids;
+}
+
+CREATE OR REPLACE QUERY vertex_neighbors(
+    STRING vtype, STRING vid, SET<STRING> edge_types
+) FOR GRAPH {graph} SYNTAX v2 {
+  // Direction is expressed in the edge names the caller passes: every edge has a
+  // declared reverse, so walking "in" from a Venue to its Events is walking
+  // rev_HELD_AT outward. That keeps one query for both directions.
+  //
+  // Edge attributes across every edge type, flattened into one row shape. The
+  // set is small and fixed, which is cheaper than one query per edge type and
+  // keeps this backend's return shape identical to the local backend's.
+  TYPEDEF TUPLE<edge_type STRING, from_id STRING, to_id STRING, medal STRING, noc STRING, event_id STRING, gap_years INT> EdgeRow;
+  ListAccum<EdgeRow> @@rows;
+
+  All = {ANY};
+  S = SELECT s FROM All:s WHERE s.type == vtype AND s.id == vid;
+
+  // `-(_>:e)-` walks each incident edge exactly once and names it from this
+  // vertex's point of view, so an incoming WON_GOLD arrives as rev_WON_GOLD.
+  // The undirected form `-(:e)-` instead reports every edge twice, once under
+  // each name, which loses the direction the caller asked for.
+  R = SELECT t FROM S:s -(_>:e)- :t
+      WHERE edge_types.size() == 0 OR e.type IN edge_types
+      // Attributes must be read only from edge types that declare them. Asking
+      // an AT_GAMES edge for `gap_years` does not error -- it silently discards
+      // the whole accumulated row, which reads downstream as "this vertex has no
+      // neighbours". Branching by edge type is what keeps that from happening.
+      ACCUM CASE
+        WHEN e.type LIKE "%WON_%" THEN
+          @@rows += EdgeRow(e.type, s.id, t.id,
+                            e.getAttr("medal", "STRING"), e.getAttr("noc", "STRING"), "", -1)
+        WHEN e.type LIKE "%REPRESENTS" THEN
+          @@rows += EdgeRow(e.type, s.id, t.id,
+                            e.getAttr("medal", "STRING"), "",
+                            e.getAttr("event_id", "STRING"), -1)
+        WHEN e.type LIKE "%PRECEDED_BY" THEN
+          @@rows += EdgeRow(e.type, s.id, t.id,
+                            "", "", "", e.getAttr("gap_years", "INT"))
+        ELSE
+          @@rows += EdgeRow(e.type, s.id, t.id, "", "", "", -1)
+      END;
+  PRINT R;
+  PRINT @@rows AS edges;
+}
+
+CREATE OR REPLACE QUERY vertex_vocabulary(STRING vtype, STRING field) FOR GRAPH {graph} SYNTAX v2 {
+  // The distinct values of a field, handed to the planner as a schema card so it
+  // proposes predicate values that actually exist in the graph rather than
+  // values it invented from the question's wording.
+  SetAccum<STRING> @@values;
+  All = {ANY};
+  R = SELECT s FROM All:s WHERE s.type == vtype
+      ACCUM CASE WHEN s.getAttr(field, "STRING") != "" THEN
+              @@values += s.getAttr(field, "STRING")
+            END;
+  PRINT @@values AS vocab;
+}
+
+CREATE OR REPLACE QUERY vector_search(LIST<float> qv, INT k) FOR GRAPH {graph} SYNTAX v2 {
+  // Similarity retrieval over the Chunk vector index. The result set comes back
+  // unordered, so the distance map is returned alongside it and the caller sorts:
+  // relying on the set's order would silently scramble the ranking that the whole
+  // RAG pipeline depends on.
+  //
+  // COSINE distance, so 0 means identical. The backend converts it to a
+  // similarity score on the way out.
+  MapAccum<VERTEX, FLOAT> @@distance;
+  hits = vectorSearch({Chunk.emb}, qv, k, {distance_map: @@distance});
+  PRINT hits;
+  PRINT @@distance AS distances;
+}
+
+INSTALL QUERY ALL

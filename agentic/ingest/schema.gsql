@@ -1,0 +1,126 @@
+// Olympics property graph — TigerGraph schema (docs/ARCHITECTURE.md §4).
+//
+// Applied by agentic/ingest/load_tigergraph.py, which substitutes {graph} and
+// runs the whole thing as ONE schema-change job: each job on Savanna costs
+// roughly 30 seconds of rebuild, so splitting it per vertex type would turn a
+// half-minute operation into ten minutes.
+//
+// Two conventions matter for backend parity (LOCKED-3), because the local
+// JSONL backend and this one must answer identically:
+//
+//   1. Absent values. TigerGraph has no NULL for a primitive attribute, so the
+//      loader writes -1 for an absent INT and "" for an absent STRING, and the
+//      TigerGraph backend maps both back to None on read. Without this, a
+//      predicate like competitors > 0 would silently match the 32 events whose
+//      competitor count the corpus never stated.
+//   2. Reverse edges. Every edge is DIRECTED with a declared reverse, so a
+//      traversal can walk "in" as well as "out" — the multi_hop questions name
+//      a venue and a date and must reach the event from the venue side.
+
+USE GRAPH {graph}
+
+CREATE SCHEMA_CHANGE JOB build_olympics FOR GRAPH {graph} {
+
+  // ── Entities ───────────────────────────────────────────────────────────────
+  ADD VERTEX Games (
+    PRIMARY_ID id STRING,
+    name STRING, year INT, season STRING,
+    name_fold STRING, season_fold STRING
+  ) WITH primary_id_as_attribute="true";
+
+  ADD VERTEX Sport (
+    PRIMARY_ID id STRING,
+    name STRING,
+    name_fold STRING
+  ) WITH primary_id_as_attribute="true";
+
+  ADD VERTEX Venue (
+    PRIMARY_ID id STRING,
+    name STRING,
+    name_fold STRING
+  ) WITH primary_id_as_attribute="true";
+
+  ADD VERTEX Nation (
+    PRIMARY_ID id STRING,
+    code STRING,
+    code_fold STRING
+  ) WITH primary_id_as_attribute="true";
+
+  ADD VERTEX Athlete (
+    PRIMARY_ID id STRING,
+    name STRING,
+    name_fold STRING
+  ) WITH primary_id_as_attribute="true";
+
+  // competitors and nations are numeric attributes rather than prose, which is
+  // what turns every aggregation and superlative question into one query
+  // instead of a 43-document context window.
+  ADD VERTEX Event (
+    PRIMARY_ID id STRING,
+    title STRING, event_name STRING, event_key STRING, title_event_key STRING,
+    sport STRING, games_id STRING, year INT, season STRING, venue STRING,
+    competitors INT, competitors_unit STRING, nations INT,
+    win_value STRING, url STRING,
+    date_raw STRING, date_start INT, date_end INT, date_month STRING,
+    gold_raw STRING, silver_raw STRING, bronze_raw STRING, gold_noc STRING,
+    approx_tokens INT,
+    // Folded comparison keys, precomputed at load time; see agentic/graph_schema.py
+    title_fold STRING, event_name_fold STRING, sport_fold STRING, season_fold STRING,
+    venue_fold STRING, date_month_fold STRING, gold_noc_fold STRING,
+    win_value_fold STRING, event_key_fold STRING, title_event_key_fold STRING,
+    games_id_fold STRING, date_raw_fold STRING, gold_raw_fold STRING,
+    silver_raw_fold STRING, bronze_raw_fold STRING, competitors_unit_fold STRING
+  ) WITH primary_id_as_attribute="true";
+
+  // The 789 non-Olympic articles. No question touches them; they exist so that
+  // vector search has the same distractors a real corpus would have.
+  ADD VERTEX Document (
+    PRIMARY_ID id STRING,
+    title STRING, url STRING, infobox STRING, approx_tokens INT,
+    title_fold STRING
+  ) WITH primary_id_as_attribute="true";
+
+  // Vector store. doc_id is an attribute rather than an edge: chunks are only
+  // ever reached by similarity and then resolved to their document, so an edge
+  // would add a traversal without adding an answerable question.
+  ADD VERTEX Chunk (
+    PRIMARY_ID id STRING,
+    doc_id STRING, ordinal INT, text STRING
+  ) WITH primary_id_as_attribute="true";
+
+  // ── Relationships ──────────────────────────────────────────────────────────
+  ADD DIRECTED EDGE AT_GAMES (FROM Event, TO Games) WITH REVERSE_EDGE="rev_AT_GAMES";
+  ADD DIRECTED EDGE IN_SPORT (FROM Event, TO Sport) WITH REVERSE_EDGE="rev_IN_SPORT";
+  ADD DIRECTED EDGE HELD_AT  (FROM Event, TO Venue) WITH REVERSE_EDGE="rev_HELD_AT";
+
+  ADD DIRECTED EDGE WON_GOLD   (FROM Event, TO Athlete, medal STRING, noc STRING)
+    WITH REVERSE_EDGE="rev_WON_GOLD";
+  ADD DIRECTED EDGE WON_SILVER (FROM Event, TO Athlete, medal STRING, noc STRING)
+    WITH REVERSE_EDGE="rev_WON_SILVER";
+  ADD DIRECTED EDGE WON_BRONZE (FROM Event, TO Athlete, medal STRING, noc STRING)
+    WITH REVERSE_EDGE="rev_WON_BRONZE";
+
+  ADD DIRECTED EDGE REPRESENTS (FROM Athlete, TO Nation, event_id STRING, medal STRING)
+    WITH REVERSE_EDGE="rev_REPRESENTS";
+
+  // One edge type, two endpoint pairs: the Games chain answers "the Olympics
+  // immediately before 2016" and the Event chain answers the same question
+  // scoped to a single sport and event.
+  ADD DIRECTED EDGE PRECEDED_BY (
+    FROM Event, TO Event | FROM Games, TO Games,
+    gap_years INT
+  ) WITH REVERSE_EDGE="rev_PRECEDED_BY";
+}
+
+RUN SCHEMA_CHANGE JOB build_olympics
+
+// The vector index, in a second job: ALTER cannot see a vertex type created by
+// the job it is running in, so adding the attribute alongside the Chunk vertex
+// fails with "the vertex Chunk does not exist". Dimension is substituted by the
+// loader from agentic/graph_schema.py, so the schema cannot drift from the model
+// that produced the vectors.
+CREATE SCHEMA_CHANGE JOB add_chunk_vector FOR GRAPH {graph} {
+  ALTER VERTEX Chunk ADD VECTOR ATTRIBUTE emb(DIMENSION={dim}, METRIC="COSINE");
+}
+
+RUN SCHEMA_CHANGE JOB add_chunk_vector
