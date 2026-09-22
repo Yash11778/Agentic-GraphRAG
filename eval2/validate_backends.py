@@ -59,6 +59,17 @@ CASES: list[tuple[str, Callable[[Any], Any]]] = [
     ("find/date-contains-tokens-reordered",
      lambda b: b.find("Event", [("venue", "contains", "TechnologyUniversity Gymnasium"),
                                 ("date_raw", "contains", "12 August 2008")])),
+    # A number in a contains value matches as a whole number: "6" must not be
+    # found inside "16" or "2016". One event, not the seventeen at the venue.
+    ("find/date-contains-whole-number",
+     lambda b: b.find("Event", [("venue", "contains", "Carioca Arena 3"),
+                                ("date_raw", "contains", "6 August 2016")])),
+    ("find/date-contains-number-in-run",
+     lambda b: b.find("Event", [("venue", "contains", "Beijing National Stadium"),
+                                ("date_raw", "contains", "16 August 2008")])),
+    ("agg/count-whole-number",
+     lambda b: b.aggregate("Event", [("venue", "contains", "Olympic Stadium"),
+                                     ("date_raw", "contains", "6 August")])),
 
     # find: integer predicates and absence
     ("find/competitors-gt", lambda b: b.find("Event", [("competitors", "gt", 100)])),

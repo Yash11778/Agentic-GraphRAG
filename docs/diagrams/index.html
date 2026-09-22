@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Agentic GraphRAG — diagrams</title>
+<style>
+  body { margin: 0; padding: 32px; font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; color: #16150f; background: #fff; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  h2 { font-size: 16px; margin: 40px 0 8px; }
+  p  { color: #52514e; max-width: 70ch; margin: 0 0 12px; }
+  .mermaid { background: #fff; border: 1px solid #e2dfd8; padding: 20px; overflow-x: auto; }
+  code { background: #f7f6f3; padding: 2px 5px; }
+</style>
+</head>
+<body>
+<h1>Agentic GraphRAG — submission diagrams</h1>
+<p>Sources are the <code>.mmd</code> files next to this page. Open this file in a browser,
+   then right-click a diagram → "Save image as", or use the browser's print-to-PDF at
+   200% for a crisp export. GitHub renders the same sources inline in the README.</p>
+
+<h2>1. System architecture</h2>
+<p>Six layers. One tool layer feeds all three pipelines, so a benchmark difference between
+   them can only come from control flow.</p>
+<pre class="mermaid" id="architecture"></pre>
+
+<h2>2. The agent loop for one question</h2>
+<p>Plan → select → execute → evaluate → decide. The coverage gate and the verbatim check
+   are the two deterministic checks between the model and the answer.</p>
+<pre class="mermaid" id="agent_loop"></pre>
+
+<h2>3. Property graph schema</h2>
+<pre class="mermaid" id="graph_schema"></pre>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: false, theme: "neutral", fontFamily: "ui-sans-serif, system-ui, sans-serif" });
+  for (const name of ["architecture", "agent_loop", "graph_schema"]) {
+    const src = await (await fetch(`${name}.mmd`)).text();
+    const el = document.getElementById(name);
+    const { svg } = await mermaid.render(`svg_${name}`, src.replace(/^%%.*$/gm, ""));
+    el.innerHTML = svg;
+  }
+</script>
+</body>
+</html>

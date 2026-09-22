@@ -17,12 +17,28 @@ All three call the **same** retrieval tools and run under the **same** generatio
 budget. They differ only in control flow, which is the only way a token or accuracy
 delta can be attributed to agency rather than to one pipeline having better plumbing.
 
+**At a glance** (final build, every number from a full run; details under
+[Results](#results)):
+
+| | RAG | GraphRAG | **Agentic GraphRAG** |
+|---|---:|---:|---:|
+| Exact match, 100 public questions | 53% | 48% | **98%** (99% on TigerGraph) |
+| Tokens per question | 4,900 | 5,412 | **4,270** |
+| Retrieved context per question | 4,658 | 5,205 | **144** |
+| Declined to answer | 13% | 19% | 1% |
+| Hidden 50, answered on TigerGraph | 42 / 50 | 42 / 50 | **50 / 50** |
+
+The agent is the most accurate pipeline and also the cheapest, because counting and
+comparison run inside TigerGraph instead of in the model's context window. The one
+place it is overkill is a question a single document answers, where plain RAG is
+five points better; the agent routes those to a short path.
+
 ---
 
 ## The corpus and why it is hard
 
-2,951 Wikipedia documents, ~5.47M tokens. 2,162 are Olympic event articles with
-machine-parseable infoboxes; 789 are films, people and companies that no question
+2,951 Wikipedia documents, ~5.47M tokens. 2,187 are Olympic event articles with
+machine-parseable infoboxes; 764 are films, people and companies that no question
 touches — distractors that punish naive similarity search.
 
 The 150 questions split into five types, and half the hidden set is aggregation or
@@ -129,29 +145,35 @@ python ask.py --all "Who won the gold medal in the event held at ExCeL Exhibitio
 ```
 
 `ask.py` prints the agent's steps as they happen, from the same trace the benchmark
-records, and `--all` puts the three pipelines' answers and costs side by side.
+records, and `--all` puts the three pipelines' answers and costs side by side. With
+`GRAPH_BACKEND=tigergraph` in `.env` every step runs against Savanna.
 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest        # 61 tests, no network, under a second
+.venv/bin/python -m pytest        # 72 tests, no network, under a second
 .venv/bin/ruff check .            # lint, configured in pyproject.toml
 ```
 
 The tests run the tool layer over a seven-event graph and pin the behaviours the
 agent's accuracy turned out to hinge on: numeric thresholds arriving as strings,
 token-wise `contains`, absent values, the empty-aggregate status, the field check,
-the coverage gate, the stop-reason order and the verbatim check.
+the coverage gate, the stop-reason order, the verbatim check, whole-number
+matching in `contains`, and the provenance labels on result files.
 
 ## Benchmarking
 
 ```bash
 .venv/bin/python eval2/run_public.py     # 100 questions x 3 pipelines, resumable
-.venv/bin/python eval2/run_hidden.py     # 50 held-out questions -> submission bundle
+.venv/bin/python eval2/run_hidden.py     # 50 held-out x 3 pipelines -> submission bundle
 .venv/bin/python eval2/report.py         # results -> frontend/public/report.json
 
 cd frontend && npm install && npm run dev    # dashboard
 ```
+
+The dashboard is static and reads the committed `report.json`: a three-way results
+view, the cost-of-agency chart against either baseline, the held-out set, and a
+question explorer that replays any of the 100 investigations step by step.
 
 Both runners resume: results append per row, and a rerun skips what is already
 there. On a rate-limited free tier that matters, and `GROQ_API_KEYS` accepts
@@ -160,13 +182,24 @@ comma-separated fallback credentials that are rotated when one runs low.
 results are untouched, and `--compact` drops superseded rows from a file that has
 been through several sessions.
 
+**Every result row records where it came from.** A row is stamped with the
+backend, the model and the time it was written, and every file-level label (the
+`backend` in `submission.json` and `public_summary.json`, the provenance block in
+`report.json`) is derived from the rows rather than read from the environment. A
+resume onto a file written against the other backend is refused, and a file whose
+rows disagree cannot be summarised or bundled at all. `run_hidden.py --package`
+and `run_public.py --summarise` rebuild the derived files from the rows without
+running anything.
+
 ---
 
 ## Ingestion is deterministic
 
 Infoboxes are structured key-value text and titles follow
 `Sport at the YEAR Season Olympics – Event`, so parsing is rule-based: zero LLM cost
-and no extraction error to audit. Field coverage over the 2,162 Olympic documents:
+and no extraction error to audit. Field coverage over the Olympic event documents
+(measured on the 2,162 that parsed first; 25 tennis articles that open with a
+tournament infobox were recovered later and are in the graph):
 
 | field | coverage |
 |---|---|
@@ -225,7 +258,7 @@ slept on the provider's rate limit.
 |---|---:|---:|---:|---:|---:|---:|---:|
 | P1 RAG | 53% | 4,900 | 4,658 | 0.360 | 1.0 | 1.0 | 13% |
 | P2 GraphRAG | 48% | 5,412 | 5,205 | 0.096 | 3.6 | 1.6 | 19% |
-| **P3 Agentic** | **96%** | **4,389** | **188** | **0.751** | 2.3 | 2.3 | 3% |
+| **P3 Agentic** | **98%** | **4,270** | **144** | **0.774** | 2.2 | 2.3 | 1% |
 
 **The agent is both more accurate and cheaper.** It does not pay for its
 reasoning with context: counting and comparison run in the database, so it puts
@@ -237,11 +270,11 @@ tool calls take 2–15 ms.
 
 | qtype | n | RAG | GraphRAG | Agentic | tokens R / G / A | agent context |
 |---|---:|---:|---:|---:|---:|---:|
-| lookup | 19 | 100% | 89% | 95% | 4,663 / 5,384 / 4,289 | 205 |
-| temporal | 22 | 86% | 68% | **100%** | 4,670 / 5,394 / 4,069 | 204 |
-| multi_hop | 28 | 46% | 54% | **89%** | 5,077 / 5,241 / 4,368 | 308 |
-| aggregation | 21 | 10% | 5% | **100%** | 5,066 / 5,565 / 3,859 | 6 |
-| superlative | 10 | 0% | 0% | **100%** | 5,016 / 5,658 / 6,453 | 164 |
+| lookup | 19 | 100% | 89% | 95% | 4,663 / 5,384 / 4,028 | 130 |
+| temporal | 22 | 86% | 68% | **100%** | 4,670 / 5,394 / 4,105 | 201 |
+| multi_hop | 28 | 46% | 54% | **96%** | 5,077 / 5,241 / 4,142 | 209 |
+| aggregation | 21 | 10% | 5% | **100%** | 5,066 / 5,565 / 3,892 | 6 |
+| superlative | 10 | 0% | 0% | **100%** | 5,016 / 5,658 / 6,248 | 152 |
 
 Aggregation and superlative are the benchmark's point. One aggregation question
 spans 43 gold documents; no top-k window answers it, and both baselines sit near
@@ -254,32 +287,34 @@ Against GraphRAG, per question type:
 
 | qtype | Δ accuracy | Δ tokens | verdict |
 |---|---:|---:|---|
-| aggregation | +95% | -1,706 | strictly better |
-| superlative | +100% | +796 | worth the cost |
-| multi_hop | +36% | -873 | strictly better |
-| temporal | +32% | -1,326 | strictly better |
-| lookup | +5% | -1,095 | strictly better |
+| aggregation | +95% | -1,673 | strictly better |
+| superlative | +100% | +590 | worth the cost |
+| multi_hop | +43% | -1,099 | strictly better |
+| temporal | +32% | -1,290 | strictly better |
+| lookup | +5% | -1,356 | strictly better |
 
 Against RAG the picture is the same except for `lookup`, where RAG is 5 points
 better and the agent is only slightly cheaper: **for a question one document
 answers, the agent is overkill**, and the routing layer exists because of it.
-45 of 100 questions took the fast path.
+51 of 100 questions took the fast path.
 
-### What the four misses are
+### What the two misses are
 
-Three are refusals (`INSUFFICIENT_EVIDENCE`, scored as wrong by design). Two of
-those are venue-and-date questions where two events share the venue and the
-exact date string, so the graph cannot separate them and the agent declines to
-guess; the third is a title lookup the planner never phrased as a filter the
-graph could match. The fourth is a venue with six events on one day where the
-agent chose the wrong one. The tool-layer ceiling from the question text alone is
-99%, so the agent is within three points of what the graph can express.
+One is a refusal (`INSUFFICIENT_EVIDENCE`, scored as wrong by design): the
+filter returned the one right event, nations count included, and the model
+declined anyway. The other is a venue-and-date question where two events share
+the venue and the exact date string; the agent picked the right one and copied
+its four-name medal cell with one letter wrong (`Schempt` for `Schempp`). The
+verbatim check does not touch a difference in a letter, by design, so it stays
+wrong. The tool-layer ceiling from the question text alone is 99%, so the agent
+is within one point of what the graph can express.
 
-**Variance.** Temperature is 0, but tool-calling is not fully deterministic: the
-build before the final pass scored 86% and a re-run of its failures moved
-individual question types by up to ten points. Single-run numbers should be read
-with that in mind; the per-type margins over the baselines are far larger than
-the variance.
+**Variance.** Temperature is 0, but tool-calling is not fully deterministic:
+between the 96% run and this one, three questions changed answer for reasons
+unrelated to the code change (one lookup was answered, another lookup was
+refused, and one ambiguous venue-and-date question went from a refusal to a
+misspelt copy). Single-run numbers should be read with that in mind; the
+per-type margins over the baselines are far larger than the variance.
 
 ### The final pass
 
@@ -292,15 +327,76 @@ reach venue names the corpus writes with joined words, and an answer that was th
 corpus's string with the separators changed scored as wrong. Each is described in
 [docs/ARCHITECTURE.md §11b](docs/ARCHITECTURE.md), each has a unit test, and the
 TigerGraph backend agrees with the local one on all 35 parity cases after the
-change. The verbatim check fired on 13 of the 100 questions and is recorded as a
-step in each of those traces.
+change. The verbatim check fired on 11 of the 100 questions and is recorded as a
+step in each of those traces, together with what the model wrote.
+
+A last pass read the four remaining failed traces of the 96% build and found two
+more defects, both general and both unit-tested. A number inside a `contains`
+value matched inside other numbers ("6" inside "2016"), so a date filter returned
+every event held at a venue that year and the right one fell past the rows the
+model is shown; a digit run now matches only as a whole number, in both backends
+(TigerGraph gained an `s_number` GSQL op), and the parity check grew to 38/38.
+And the verbatim check could replace an answer that named both the medallist
+and the event with the event's title; it now stands down whenever the answer
+contains a medal cell of a cited event. Both are described in
+[docs/ARCHITECTURE.md §11b](docs/ARCHITECTURE.md). The agentic pipeline was
+re-run in full on the fixed build, which is the 98% above; the baselines do not
+touch the changed code and were not re-run.
+
+### The same 100 questions on TigerGraph
+
+The table above was produced with the local backend so that all three
+pipelines read from the same place. The agent was then run again over the same
+100 questions with `GRAPH_BACKEND=tigergraph`, every tool call answered by the
+installed GSQL queries and the vector index on Savanna
+(`python eval2/run_public.py --pipelines agentic --out
+data/results/public_tigergraph_check.jsonl`):
+
+| Backend | Exact match | Tokens / question | Median s | Answers identical to the local run |
+|---|---:|---:|---:|---:|
+| local | 98% | 4,270 | 2.3 | |
+| TigerGraph | 99% | 4,284 | 3.0 | 98 of 100 |
+
+The two answers that differ are the two local misses: the lookup the model
+refused locally it answered on TigerGraph, and the misspelt medal cell is
+misspelt identically on both. The extra 0.7 s is network: a tool call on
+Savanna takes about 285 ms against 2 to 15 ms in memory. The file is kept as a
+check beside the headline results, not merged into them.
 
 ### Hidden set
 
-The 50 held-out questions were run on the final build against TigerGraph
-(`python eval2/run_hidden.py`, `GRAPH_BACKEND=tigergraph`): 49 answered, 1
-declined, 4,476 tokens and 2.4 steps per question, 12 on the fast path. The
-bundle with full traces is `data/results/submission.json`.
+The 50 held-out questions were run through all three pipelines on the final
+build against TigerGraph (`python eval2/run_hidden.py`,
+`GRAPH_BACKEND=tigergraph`), because the organisers asked for every question
+answered by every pipeline with its tokens and latency.
+
+| | RAG | GraphRAG | Agentic |
+|---|---:|---:|---:|
+| Answered | 42 / 50 | 42 / 50 | **50 / 50** |
+| Declined | 8 | 8 | **0** |
+| Tokens per question | 4,936 | 5,263 | **4,537** |
+| Retrieved context | 4,600 | 4,977 | **167** |
+| Median active time | 2.0 s | 4.6 s | 3.2 s |
+
+There are no gold answers for this set, so the only comparison it supports is
+cost and coverage, not accuracy. Both baselines decline 8 of the 50; the agent
+declines none, and does it on the least context of the three. The agent's own
+run is 2.4 steps per question with 14 on the fast path.
+
+Latency is reported as a median of active time — time not slept on the
+provider's rate limit — because the run met Groq timeouts that put one
+GraphRAG question at 1,114 s. That is provider behaviour, not pipeline cost, and
+a mean would report it as though it were.
+
+The bundle with full traces is `data/results/submission.json`; its
+`backend` label is derived from the rows, each of which is stamped
+`tigergraph`, and every one of the 62 tool calls in those traces took 263 to
+360 ms, which is a Savanna round trip and not the 2 to 15 ms of the in-memory
+backend. These rows were written before the per-row timestamp existed, so the
+bundle's `run_finished_at` is null rather than guessed; the run was made on
+2026-09-15. Against the previous build's bundle, 48 answers are identical; the
+one refusal was answered, and one ambiguous venue-and-date question (two
+events, one day) now names both gold medallists rather than one.
 
 ## Status
 
@@ -308,15 +404,15 @@ bundle with full traces is `data/results/submission.json`.
 |---|---|
 | Ingestion, property graph | done, coverage measured |
 | TigerGraph schema, GSQL primitives, load | done, counts verified |
-| Both backends | done, 35/35 parity checks including vector search and the final predicate semantics |
+| Both backends | done, 38/38 parity checks including vector search and the final predicate semantics; the public set re-run on TigerGraph agrees with the local run on 98/100 answers |
 | Vector index | done, 19,832 chunks, local ONNX embeddings |
 | Three pipelines | done |
 | Agent harness, orchestrator, coverage gate, routing | done |
-| Public benchmark | done, 300 runs on the final build |
-| Hidden-50 bundle | done, `data/results/submission.json`: 49/50 answered on TigerGraph, 1 refused |
+| Public benchmark | done, 300 runs on the final build; the agent re-run on TigerGraph in `data/results/public_tigergraph_check.jsonl` (99/100) |
+| Hidden-50 bundle | done, `data/results/submission.json`: all three pipelines x 50 on TigerGraph, agent 50/50 answered, baselines 42/50 |
 | Dashboard | done, static, reads `frontend/public/report.json` |
-| Unit tests | done, 61, `python -m pytest` |
-| Demo video | to record |
+| Unit tests | done, 72, `python -m pytest` |
+| Demo video | delivered with the submission, not in the repo |
 
 ## Attribution
 

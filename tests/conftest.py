@@ -1,4 +1,4 @@
-"""Shared fixtures: a six-event graph small enough to reason about by hand.
+"""Shared fixtures: a seven-event graph small enough to reason about by hand.
 
 Every test here runs without a network, a model, or the real corpus. The tiny
 graph exercises the same code paths as the 2,187-event one -- folded string

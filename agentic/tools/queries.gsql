@@ -14,8 +14,14 @@
 // carries the type: `s_` ops compare strings, `i_` ops compare integers. Values
 // are always strings and are converted by the op.
 //
-//   s_eq  s_ne  s_contains  s_exists  s_absent
+//   s_eq  s_ne  s_contains  s_number  s_exists  s_absent
 //   i_eq  i_ne  i_gt  i_gte  i_lt  i_lte
+//
+// `s_number` is `s_contains` for a token that is a number: the value must occur
+// with no digit on either side, so "6" is not found inside "2016" or "16". LIKE
+// has no notion of a boundary, so the string is scanned position by position.
+// Strings are short and vertex sets small, so the scan costs nothing visible.
+// `instr` returns -1 when the character is not a digit, hence the `< 0` tests.
 //
 // String predicates are expected to name a `_fold` attribute and to carry an
 // already-folded value; see agentic/graph_schema.py. GSQL's lower() folds case
@@ -42,6 +48,7 @@ CREATE OR REPLACE QUERY vertex_filter(
   // accumulator first. The three lists are index-aligned.
   ListAccum<STRING> @@f, @@o, @@v;
   @@f += fields; @@o += ops; @@v += vals;
+  OrAccum @hit;
 
   All = {ANY};
   R = SELECT s FROM All:s WHERE s.type == vtype;
@@ -60,6 +67,18 @@ CREATE OR REPLACE QUERY vertex_filter(
         R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") != val;
       WHEN "s_contains" THEN
         R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") LIKE "%" + val + "%";
+      WHEN "s_number" THEN
+        R = SELECT s FROM R:s POST-ACCUM s.@hit = FALSE;
+        R = SELECT s FROM R:s
+            ACCUM FOREACH p IN RANGE[0, length(s.getAttr(fld, "STRING")) - length(val)] DO
+              IF substr(s.getAttr(fld, "STRING"), p, length(val)) == val
+                 AND (p == 0 OR instr("0123456789", substr(s.getAttr(fld, "STRING"), p - 1, 1)) < 0)
+                 AND (p + length(val) == length(s.getAttr(fld, "STRING"))
+                      OR instr("0123456789", substr(s.getAttr(fld, "STRING"), p + length(val), 1)) < 0)
+              THEN s.@hit += TRUE
+              END
+            END;
+        R = SELECT s FROM R:s WHERE s.@hit;
       WHEN "s_exists" THEN
         R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") != "";
       WHEN "s_absent" THEN
@@ -102,6 +121,7 @@ CREATE OR REPLACE QUERY vertex_aggregate(
   // a superlative without reading 43 documents into the context window.
   ListAccum<STRING> @@f, @@o, @@v;
   @@f += fields; @@o += ops; @@v += vals;
+  OrAccum @hit;
   SumAccum<INT> @@total;
   MaxAccum<INT> @@maximum;
   MinAccum<INT> @@minimum;
@@ -126,6 +146,18 @@ CREATE OR REPLACE QUERY vertex_aggregate(
         R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") != val;
       WHEN "s_contains" THEN
         R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") LIKE "%" + val + "%";
+      WHEN "s_number" THEN
+        R = SELECT s FROM R:s POST-ACCUM s.@hit = FALSE;
+        R = SELECT s FROM R:s
+            ACCUM FOREACH p IN RANGE[0, length(s.getAttr(fld, "STRING")) - length(val)] DO
+              IF substr(s.getAttr(fld, "STRING"), p, length(val)) == val
+                 AND (p == 0 OR instr("0123456789", substr(s.getAttr(fld, "STRING"), p - 1, 1)) < 0)
+                 AND (p + length(val) == length(s.getAttr(fld, "STRING"))
+                      OR instr("0123456789", substr(s.getAttr(fld, "STRING"), p + length(val), 1)) < 0)
+              THEN s.@hit += TRUE
+              END
+            END;
+        R = SELECT s FROM R:s WHERE s.@hit;
       WHEN "s_exists" THEN
         R = SELECT s FROM R:s WHERE s.getAttr(fld, "STRING") != "";
       WHEN "s_absent" THEN

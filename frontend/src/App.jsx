@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer,
+  Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine,
   Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis,
 } from "recharts";
 
@@ -21,16 +21,32 @@ const PIPELINES = [
     blurb: "Plan, choose a tool, evaluate the evidence, decide whether to continue.",
   },
 ];
+// Pipeline display names, derived from PIPELINES so a rename happens once.
+const PLABEL = Object.fromEntries(PIPELINES.map((p) => [p.key, p.label]));
 const QTYPES = ["lookup", "temporal", "multi_hop", "aggregation", "superlative"];
 const QLABEL = {
   lookup: "Lookup", temporal: "Temporal", multi_hop: "Multi-hop",
   aggregation: "Aggregation", superlative: "Superlative",
 };
+// Short forms for an axis that has five categories and a phone's width.
+const QSHORT = {
+  lookup: "Look", temporal: "Temp", multi_hop: "Multi",
+  aggregation: "Aggr", superlative: "Super",
+};
+const ROUTE = {
+  agentic: "full investigation", fast_path: "fast path",
+  fast_path_escalated: "fast path, escalated",
+};
 const SECTIONS = [
   ["results", "Results"],
   ["cost", "Cost of agency"],
+  ["hidden", "Held-out set"],
   ["explorer", "Question explorer"],
 ];
+
+// Backend names as the result rows record them, in the words the page uses.
+const BACKEND = { tigergraph: "TigerGraph", local: "the local backend" };
+const backendName = (b) => BACKEND[b] ?? b ?? "an unrecorded backend";
 
 const pct = (x) => `${Math.round((x ?? 0) * 100)}%`;
 const num = (x) => Math.round(x ?? 0).toLocaleString();
@@ -42,6 +58,37 @@ const secs = (s) => {
   const v = s.median_active_s ?? s.median_wall_clock_s ?? s.avg_wall_clock_s;
   return v == null ? "—" : `${v.toFixed(1)}s`;
 };
+
+// A chart sized from its figure's measured width. The library's responsive
+// wrapper waits for a resize notification, and until it arrives the chart is
+// drawn at whatever width the page had before layout settled; measuring the
+// figure directly after layout draws it right the first time, on any screen.
+function Sized({ height, children }) {
+  const ref = useRef(null);
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const measure = () => { if (ref.current) setWidth(ref.current.clientWidth); };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+  return (
+    <div ref={ref} style={{ width: "100%", height }}>
+      {width > 0 && children(width)}
+    </div>
+  );
+}
+
+function useNarrow(width = 560) {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < width);
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth < width);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [width]);
+  return narrow;
+}
 
 export default function App() {
   const [report, setReport] = useState(null);
@@ -69,11 +116,12 @@ export default function App() {
           <>
             <Results report={report} />
             <Cost report={report} />
+            <Hidden report={report} />
             <Explorer report={report} />
           </>
         )}
       </main>
-      <SiteFooter />
+      <SiteFooter report={report} />
     </>
   );
 }
@@ -142,8 +190,9 @@ function Hero({ report }) {
 
 function Results({ report }) {
   const { summary } = report;
+  const narrow = useNarrow();
   const accuracy = QTYPES.map((q) => {
-    const row = { qtype: QLABEL[q] };
+    const row = { qtype: narrow ? QSHORT[q] : QLABEL[q] };
     PIPELINES.forEach((p) => {
       row[p.key] = Math.round((summary[p.key]?.by_qtype?.[q]?.exact ?? 0) * 100);
     });
@@ -197,8 +246,9 @@ function Results({ report }) {
                    the most similar few documents. One spans 43 gold documents, which no
                    top-k window reaches."
         >
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={accuracy} margin={{ top: 20, right: 4, bottom: 4, left: -14 }}
+          <Sized height={300}>{(width) => (
+            <BarChart width={width} height={300} data={accuracy}
+                      margin={{ top: 20, right: 4, bottom: 4, left: -14 }}
                       barCategoryGap="24%" barGap={2}>
               <CartesianGrid stroke="#e7e5e0" vertical={false} />
               <XAxis dataKey="qtype" tickLine={false} axisLine={{ stroke: "#d8d5ce" }}
@@ -217,7 +267,7 @@ function Results({ report }) {
                 </Bar>
               ))}
             </BarChart>
-          </ResponsiveContainer>
+          )}</Sized>
           <Key items={PIPELINES.map((p) => [p.colour, p.label])} />
         </Figure>
 
@@ -227,8 +277,8 @@ function Results({ report }) {
                    agent counts and compares inside the database, so documents never
                    enter the prompt."
         >
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={tokens} layout="vertical"
+          <Sized height={300}>{(width) => (
+            <BarChart width={width} height={300} data={tokens} layout="vertical"
                       margin={{ top: 8, right: 62, bottom: 4, left: 4 }}
                       barCategoryGap="30%">
               <CartesianGrid stroke="#e7e5e0" horizontal={false} />
@@ -246,7 +296,7 @@ function Results({ report }) {
                            valueAccessor={(e) => num(e.payload.context + e.payload.rest)} />
               </Bar>
             </BarChart>
-          </ResponsiveContainer>
+          )}</Sized>
           <Key items={[["#eb6834", "Retrieved context"],
                        ["#2a78d6", "Prompt, reasoning and answer"]]} />
         </Figure>
@@ -303,8 +353,9 @@ function Cost({ report }) {
         <Figure title="Accuracy gained against tokens spent"
                 caption="Upper left is best: more accurate and cheaper. Upper right still
                          pays. Below the horizontal rule the agent is not earning its place.">
-          <ResponsiveContainer width="100%" height={340}>
-            <ScatterChart margin={{ top: 16, right: 28, bottom: 28, left: 4 }}>
+          <Sized height={340}>{(width) => (
+            <ScatterChart width={width} height={340}
+                          margin={{ top: 16, right: 28, bottom: 28, left: 4 }}>
               <CartesianGrid stroke="#eeece7" />
               <XAxis type="number" dataKey="tokens" tickLine={false}
                      axisLine={{ stroke: "#d8d5ce" }} tick={{ fill: "#8a8880", fontSize: 11 }}
@@ -326,7 +377,7 @@ function Cost({ report }) {
                 <LabelList dataKey="qtype" content={<PointLabel data={data} />} />
               </Scatter>
             </ScatterChart>
-          </ResponsiveContainer>
+          )}</Sized>
         </Figure>
 
         <div className="finding">
@@ -348,6 +399,95 @@ function Cost({ report }) {
             a short path on a tighter budget, and escalates only if that path comes back
             empty.
           </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Held-out set ────────────────────────────────────────────────────────── */
+
+function Hidden({ report }) {
+  const h = report.hidden;
+  if (!h || !h.n) return null;
+  const routes = Object.entries(h.routes || {});
+  const stops = Object.entries(h.stop_reasons || {});
+  const byType = Object.entries(h.by_qtype || {});
+  const byPipeline = Object.entries(h.by_pipeline || {});
+  return (
+    <section id="hidden" className="band">
+      <SectionHead
+        eyebrow="Held-out set"
+        title={`${h.answered} of ${h.n} held-out questions answered`}
+        lede={`The organisers' fifty questions without published answers, run once on
+              the final build against ${backendName(h.backend)} through all three
+              pipelines, as every row of the submission bundle records. Nothing here
+              is scored, so the comparison below is cost and coverage rather than
+              accuracy: both baselines decline eight of the fifty, the agent none,
+              and it does it on a fraction of the context. Every trace is kept in full.`}
+      />
+      <div className="hidden-grid">
+        <dl className="hero-stats">
+          <div>
+            <dt>Answered</dt>
+            <dd>{h.answered}/{h.n}</dd>
+            <span>the rest declined, never guessed</span>
+          </div>
+          <div>
+            <dt>Tokens per question</dt>
+            <dd>{num(h.total_tokens / h.n)}</dd>
+            <span>{num(h.total_tokens)} in total</span>
+          </div>
+          {h.avg_steps != null && (
+            <div>
+              <dt>Steps per question</dt>
+              <dd>{h.avg_steps.toFixed(1)}</dd>
+              <span>planning step included</span>
+            </div>
+          )}
+          {h.median_active_s != null && (
+            <div>
+              <dt>Seconds per question</dt>
+              <dd>{h.median_active_s.toFixed(1)}s</dd>
+              <span>median, net of the rate limit</span>
+            </div>
+          )}
+        </dl>
+        <div className="hidden-tables">
+          {byPipeline.length > 0 && (
+            <Table
+              caption="All three pipelines, same 50 questions"
+              columns={["Pipeline", "Answered", "Tokens", "Context", "Median s"]}
+              align={[0, 1, 1, 1, 1]}
+              rows={byPipeline.map(([name, v]) => [
+                PLABEL[name] ?? name,
+                `${v.answered}/${v.n}`,
+                num(v.avg_tokens),
+                num(v.avg_context_tokens),
+                v.median_active_s.toFixed(1),
+              ])}
+            />
+          )}
+          {byType.length > 0 && (
+            <Table
+              caption="By question type"
+              columns={["Question type", "Questions", "Answered", "Declined"]}
+              align={[0, 1, 1, 1]}
+              rows={byType.map(([q, v]) => [QLABEL[q] ?? q, v.n, v.answered, v.n - v.answered])}
+            />
+          )}
+          <Table
+            caption="Route taken"
+            columns={["Route", "Questions"]}
+            align={[0, 1]}
+            rows={routes.map(([r, n]) => [ROUTE[r] ?? r.replace(/_/g, " "), n])}
+          />
+          <Table
+            caption="Why the agent stopped"
+            columns={["Stop reason", "Questions"]}
+            align={[0, 1]}
+            rows={stops.map(([r, n]) => [r.replace(/_/g, " "), n])}
+          />
         </div>
       </div>
     </section>
@@ -559,7 +699,8 @@ function PointHint({ active, payload }) {
   );
 }
 
-function SiteFooter() {
+function SiteFooter({ report }) {
+  const prov = report?.provenance;
   return (
     <footer className="site-footer">
       <div className="bar">
@@ -568,6 +709,9 @@ function SiteFooter() {
           held-out questions. Latency is the median per question, excluding time
           spent waiting on the provider&apos;s rate limit. Nothing on this page is
           computed live.
+          {prov && ` The public runs read from ${backendName(prov.public.backend)} so
+          that all three pipelines share one source; the held-out set ran against
+          ${backendName(prov.hidden.backend)}. Both labels come from the rows.`}
         </p>
         <p className="stack">
           TigerGraph &middot; GSQL &middot; Groq gpt-oss-120b &middot; local ONNX embeddings

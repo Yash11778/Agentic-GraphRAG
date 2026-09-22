@@ -35,6 +35,7 @@ from agentic.graph_schema import (
     coerce_value,
     fold,
     folded_field,
+    is_number_token,
     reverse_edge,
 )
 
@@ -214,12 +215,13 @@ class TigerGraphBackend:
                 continue
             column = folded_field(vtype, field) or field
             if op == "contains":
-                # One LIKE per token, applied in sequence, which is AND. This is
-                # the same reading the local backend gives `contains`: every
-                # token of the value occurs somewhere in the stored string.
+                # One predicate per token, applied in sequence, which is AND.
+                # This is the same reading the local backend gives `contains`:
+                # every token of the value occurs somewhere in the stored
+                # string, and a number occurs as a whole number.
                 for token in fold(value).split() or [""]:
                     fields.append(column)
-                    ops.append("s_contains")
+                    ops.append("s_number" if is_number_token(token) else "s_contains")
                     vals.append(token)
                 continue
             gsql_op, gsql_val = self._encode_string(vtype, field, op, value)
@@ -270,7 +272,10 @@ class TigerGraphBackend:
                         continue
                     vertex = {"type": item["v_type"], "id": item["v_id"]}
                     for attr, attr_value in item["attributes"].items():
-                        if attr.endswith(FOLD_SUFFIX) or attr == "id":
+                        # Vertex-attached accumulators (`@hit`, the scratch
+                        # space of the whole-number scan) print alongside the
+                        # attributes and are not part of the vertex.
+                        if attr.endswith(FOLD_SUFFIX) or attr == "id" or attr.startswith("@"):
                             continue
                         if attr in INT_FIELDS:
                             vertex[attr] = None if attr_value == ABSENT_INT else attr_value

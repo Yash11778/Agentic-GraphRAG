@@ -124,7 +124,9 @@ def tool_schemas() -> list[dict[str, Any]]:
             ["vertex_type", "vertex_id"]),
         _fn("graph_filter",
             "All vertices of a type matching every predicate. Every fact about an "
-            "event (title, venue, date, medals, competitors) is on Event. "
+            "event (title, venue, date, medals, competitors) is on Event. An "
+            "event's title is the corpus's own name for it, sport and Games "
+            "included; event_name is the shorter infobox form and may differ. "
             "Fields by type -- " + _FIELD_GUIDE + ". Omit max_results to see "
             "every match; results are shown compactly.",
             {"vertex_type": {"type": "string"},

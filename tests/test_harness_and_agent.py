@@ -276,3 +276,15 @@ def test_trace_step_defaults_are_cheap_to_build():
     for _ in range(1000):
         step()
     assert time.perf_counter() - t0 < 1.0
+
+
+def test_verbatim_leaves_a_medallist_answer_that_names_the_event(tools):
+    s = InvestigationState(question="q")
+    s.ledger.add([Evidence("E3", "s", "graph_filter"), Evidence("E1", "s", "graph_filter")])
+    answer = "Matteo Tagliariol (Fencing at the 2008 Summer Olympics – Men's épée)"
+    assert agentic._verbatim(answer, s, tools) == answer
+    assert not any(step.tool == "verbatim_check" for step in s.trace)
+    # The step records what the model wrote as well as what replaced it.
+    assert agentic._verbatim("Men's épée at the 2008 Summer Olympics", s, tools) \
+        == "Fencing at the 2008 Summer Olympics – Men's épée"
+    assert "the model wrote: Men's épée at the 2008" in s.trace[-1].note

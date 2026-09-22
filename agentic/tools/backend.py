@@ -10,6 +10,7 @@ oracle for testing the agent while cloud credentials are unavailable.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from collections import defaultdict
 from collections.abc import Iterable
@@ -23,6 +24,7 @@ from agentic.graph_schema import (  # noqa: E402  (fold re-exported)
     AGGREGATE_ID_CAP,
     coerce_value,
     fold,
+    is_number_token,
 )
 
 GRAPH_DIR = ROOT / "data/graph"
@@ -43,8 +45,10 @@ OPS = {
     # the extra tolerance is for the corpus's own typography: it writes
     # "Xiaohaituo Bobsleigh and Luge TrackBeijing" and "Beijing Science and
     # TechnologyUniversity Gymnasium", and a question that spaces those
-    # correctly must still reach them. The TigerGraph backend expands one
-    # contains predicate into one LIKE per token, so both read this the same way.
+    # correctly must still reach them. A token that is a number matches only as
+    # a whole number (see graph_schema.is_number_token). The TigerGraph backend
+    # expands one contains predicate into one LIKE, or one whole-number scan,
+    # per token, so both read this the same way.
     "contains": lambda a, b: a is not None and _tokens_in(str(b), str(a)),
     "exists":   lambda a, b: (a is not None) == bool(b),
 }
@@ -52,7 +56,13 @@ OPS = {
 
 def _tokens_in(needle: str, haystack: str) -> bool:
     haystack = haystack.lower()
-    return all(tok in haystack for tok in needle.lower().split())
+    for tok in needle.lower().split():
+        if is_number_token(tok):
+            if not re.search(rf"(?<![0-9]){re.escape(tok)}(?![0-9])", haystack):
+                return False
+        elif tok not in haystack:
+            return False
+    return True
 
 
 class GraphBackend(Protocol):

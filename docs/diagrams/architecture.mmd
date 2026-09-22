@@ -1,0 +1,59 @@
+%% System architecture — render with Mermaid (GitHub renders this file inline
+%% when embedded in a ```mermaid fence; docs/diagrams/index.html renders all
+%% three diagrams in a browser for screenshots / PNG export).
+flowchart TB
+    classDef store fill:#f7f6f3,stroke:#8a8880,color:#16150f
+    classDef tool fill:#ffffff,stroke:#2a78d6,color:#16150f
+    classDef p1 fill:#e8f1fb,stroke:#2a78d6,color:#16150f
+    classDef p2 fill:#fdeee7,stroke:#eb6834,color:#16150f
+    classDef p3 fill:#e6f6ef,stroke:#1baf7a,color:#16150f,stroke-width:2px
+    classDef evalc fill:#f7f6f3,stroke:#52514e,color:#16150f
+
+    corpus[("corpus.jsonl<br/>2,951 Wikipedia docs · 5.47M tokens")]:::store
+
+    subgraph L1["L1 · Ingestion — deterministic, zero LLM"]
+        parse["infobox + title parser<br/>coverage measured, nothing imputed"]
+        chunk["chunker + local ONNX embedder<br/>19,832 chunks × 384 dims"]
+    end
+
+    subgraph L2["L2 · Storage — TigerGraph Savanna"]
+        pg[("property graph · GSQL<br/>Event · Games · Sport · Venue · Athlete · Nation<br/>AT_GAMES · HELD_AT · WON_GOLD · PRECEDED_BY …")]:::store
+        vec[("vector index<br/>Chunk.emb, COSINE")]:::store
+    end
+
+    subgraph L3["L3 · Shared tool layer — general primitives, no question-type handlers"]
+        direction LR
+        t1[vector_search]:::tool
+        t2[doc_fetch]:::tool
+        t3[entity_link]:::tool
+        t4[graph_neighbors]:::tool
+        t5[graph_filter]:::tool
+        t6[graph_aggregate]:::tool
+        t7[edition_step]:::tool
+        t8[medal_lookup]:::tool
+    end
+
+    subgraph P["Three pipelines · same model, temperature and output cap"]
+        direction LR
+        rag["P1 · RAG<br/>vector search → generate"]:::p1
+        grag["P2 · GraphRAG<br/>entity link → fixed 1-hop traversal → generate"]:::p2
+        agent["P3 · Agentic GraphRAG<br/>plan → route → act → evaluate → decide<br/>coverage gate · verbatim check"]:::p3
+    end
+
+    subgraph L5["L5 · Evaluation"]
+        score["exact match · grounding P/R/F1<br/>token split · trace metrics · cost of agency"]:::evalc
+    end
+
+    dash["L6 · Dashboard<br/>3-way compare · cost-of-agency chart · trace explorer"]:::evalc
+
+    corpus --> parse --> pg
+    corpus --> chunk --> vec
+    pg --> L3
+    vec --> t1
+    L3 --> rag
+    L3 --> grag
+    L3 --> agent
+    rag --> score
+    grag --> score
+    agent --> score
+    score --> dash

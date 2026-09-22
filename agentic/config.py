@@ -51,6 +51,15 @@ def _float(name: str, default: float) -> float:
     return float(raw) if raw else default
 
 
+DEFAULT_MODEL = "openai/gpt-oss-120b"
+
+
+def llm_model_name() -> str:
+    """The model every pipeline generates with. Readable without an API key, so
+    a result file can be labelled or repackaged on a machine that cannot run."""
+    return (os.getenv("GROQ_MODEL") or DEFAULT_MODEL).strip()
+
+
 @dataclass(frozen=True)
 class LLMSettings:
     """The generation budget, shared verbatim by all three pipelines (LOCKED-7)."""
@@ -69,9 +78,9 @@ class LLMSettings:
     @classmethod
     def from_env(cls) -> LLMSettings:
         return cls(
-            model=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip(),
+            model=llm_model_name(),
             temperature=_float("GROQ_TEMPERATURE", 0.0),
-            max_output_tokens=_int("GROQ_MAX_OUTPUT_TOKENS", 512),
+            max_output_tokens=_int("GROQ_MAX_OUTPUT_TOKENS", 1024),
             api_key=_require("GROQ_API_KEY"),
             reasoning_effort=os.getenv("GROQ_REASONING_EFFORT", "low").strip(),
             fallback_keys=tuple(

@@ -132,7 +132,8 @@ _NOISE_FIELDS = frozenset({
 # Stored strings an answer may be a re-punctuated copy of, in the order a tie
 # is broken. Medal cells first: they are where the model most often inserts
 # separators the corpus did not write.
-_VERBATIM_FIELDS = ("gold_raw", "silver_raw", "bronze_raw", "title", "venue")
+_MEDAL_FIELDS = ("gold_raw", "silver_raw", "bronze_raw")
+_VERBATIM_FIELDS = _MEDAL_FIELDS + ("title", "venue")
 _VERBATIM_DOCS = 20
 
 Observer = Callable[[TraceStep], None]
@@ -456,9 +457,14 @@ def _verbatim(answer: str, state: InvestigationState, tools: Tools) -> str:
        containing its event name together with its year ("Men's marathon at the
        2008 Summer Olympics – the athletics event with the most competitors").
        The corpus's name for an event is its title, so the title is the answer.
+       It does not fire when the answer also contains a medallist of a cited
+       event: "Valerie Vili (Athletics at the 2008 Summer Olympics – Women's
+       shot put)" is an answer about the medallist, and replacing it with the
+       event's title would turn a right answer into a wrong one.
 
     Neither rule fires on a difference in a letter or a digit, and neither
-    knows what kind of question was asked.
+    knows what kind of question was asked. What the model wrote is kept in the
+    trace step beside what replaced it, so every substitution can be audited.
     """
     if not answer or answer == INSUFFICIENT:
         return answer
@@ -469,7 +475,7 @@ def _verbatim(answer: str, state: InvestigationState, tools: Tools) -> str:
         return answer
     events: list[dict] = []
     for doc_id in state.ledger.doc_ids[:_VERBATIM_DOCS]:
-        vertex = tools.backend.get("Event", doc_id)
+        vertex = tools.vertex("Event", doc_id)
         if vertex:
             events.append(vertex)
 
@@ -479,10 +485,22 @@ def _verbatim(answer: str, state: InvestigationState, tools: Tools) -> str:
             if isinstance(stored, str) and stored != answer and squash(stored) in keys:
                 return _restate(state, answer, stored, f"{field_name} of {vertex['id']}")
 
+    if _names_medallist(flat, events):
+        return answer
     named = [v for v in events if _names_event(answer, flat, v)]
     if len(named) == 1 and named[0].get("title") and named[0]["title"] != answer:
         return _restate(state, answer, named[0]["title"], f"title of {named[0]['id']}")
     return answer
+
+
+def _names_medallist(flat: str, events: list[dict]) -> bool:
+    """Whether the answer contains a medal cell of any cited event."""
+    for vertex in events:
+        for field_name in _MEDAL_FIELDS:
+            cell = squash(vertex.get(field_name))
+            if len(cell) >= 4 and cell in flat:
+                return True
+    return False
 
 
 def _names_event(answer: str, flat: str, vertex: dict) -> bool:
@@ -500,7 +518,8 @@ def _restate(state: InvestigationState, answer: str, stored: str, where: str) ->
         step_no=len(state.trace) + 1, agent="evidence_evaluator",
         tool="verbatim_check", retrieval_method="none",
         args_digest=where, status="ok", latency_ms=0.0, produced_data=True,
-        note=f"answer restated as the corpus writes it: {stored[:60]}",
+        note=f"answer restated as the corpus writes it: {stored[:60]} "
+             f"(the model wrote: {answer[:80]})",
     ))
     return stored
 

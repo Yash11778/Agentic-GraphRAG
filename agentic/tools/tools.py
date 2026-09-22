@@ -135,6 +135,23 @@ class Tools:
 
     def __init__(self, backend: GraphBackend | None = None):
         self.backend = backend or get_backend()
+        # Vertices already returned by a tool this session. A graph filter hands
+        # back whole rows, and the verbatim check then asked the backend for the
+        # same rows one by one -- up to twenty round trips of ~270 ms each on
+        # Savanna, for data the run already held.
+        self._vertices: dict[tuple[str, str], dict] = {}
+
+    def vertex(self, vtype: str, vid: str) -> dict | None:
+        """One vertex, from what a tool already returned before the backend."""
+        key = (vtype, vid)
+        if key not in self._vertices:
+            self._vertices[key] = self.backend.get(vtype, vid)
+        return self._vertices[key]
+
+    def _remember(self, rows: Iterable[dict]) -> None:
+        for row in rows:
+            if isinstance(row, dict) and row.get("type") and row.get("id"):
+                self._vertices[(row["type"], row["id"])] = row
 
     @cached_property
     def documents(self) -> dict[str, dict]:
@@ -267,6 +284,7 @@ class Tools:
                         direction: str = "out") -> ToolResult:
         def run():
             rows = self.backend.neighbors(vertex_type, vertex_id, edge_types, direction)
+            self._remember(r["vertex"] for r in rows)
             data = [{"edge": r["edge"]["type"], "direction": r["direction"],
                      "vertex": r["vertex"]} for r in rows]
             evidence = [
@@ -284,6 +302,7 @@ class Tools:
         def run():
             _check_fields(vertex_type, predicates)
             rows = self.backend.find(vertex_type, predicates)
+            self._remember(rows)
             if max_results:
                 rows = rows[:max_results]
             evidence = [
@@ -359,7 +378,7 @@ class Tools:
                 athlete = row["vertex"]
                 athletes.append({"id": athlete["id"], "name": athlete.get("name"),
                                  "noc": row["edge"].get("noc")})
-            event = self.backend.get("Event", event_id)
+            event = self.vertex("Event", event_id)
             data = {"event_id": event_id, "medal": medal, "athletes": athletes,
                     "raw": (event or {}).get(f"{medal.lower()}_raw")}
             evidence = [Evidence(doc_id=event_id,

@@ -30,7 +30,9 @@ data/results/*.log
 data/results/*.tmp
 
 # ── submission material kept out of the public repo ─────────────────────────
-docs/diagrams/
+# The architecture diagram is a required Round 1 deliverable, so docs/diagrams/
+# is tracked. The demo script is the shooting notes for the video, not the
+# video, and nothing outside this repo refers to it.
 docs/DEMO_SCRIPT.md
 
 # ── misc ──────────────────────────────────────────────────────────────────────

@@ -207,10 +207,17 @@ code { font: 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace; background: 
 
 figure {
   margin: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;   /* a chart measured before layout settles must not widen the page */
   background: #fff;
   border: 1px solid var(--rule);
   padding: 20px 22px 18px;
 }
+figure .recharts-responsive-container { max-width: 100%; }
+/* If the chart was measured wider than the figure, scale it to fit rather
+   than clip its right edge. */
+figure .recharts-surface { max-width: 100%; height: auto; }
 
 figcaption { margin-bottom: 16px; }
 figcaption strong { display: block; font-size: 16px; }
@@ -425,6 +432,17 @@ tbody tr:hover td { background: var(--band); }
 .site-footer p { font-size: 12.5px; color: var(--ink-3); max-width: 70ch; }
 .site-footer .stack { white-space: nowrap; }
 
+/* ── Held-out set ─────────────────────────────────────────────────────── */
+
+.hidden-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 40px;
+  align-items: start;
+}
+.hidden-grid .hero-stats { flex-wrap: wrap; gap: 28px 40px; }
+.hidden-tables { display: grid; gap: 22px; }
+
 /* ── Narrow screens ───────────────────────────────────────────────────── */
 
 @media (max-width: 1080px) {
@@ -433,6 +451,7 @@ tbody tr:hover td { background: var(--band); }
   .hero-stats { gap: 32px; flex-wrap: wrap; }
   .split { grid-template-columns: 1fr; }
   .cards { grid-template-columns: 1fr; }
+  .hidden-grid { grid-template-columns: 1fr; gap: 28px; }
 }
 
 @media (max-width: 640px) {

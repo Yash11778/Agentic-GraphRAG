@@ -1,0 +1,54 @@
+%% The property graph. Event carries the numeric attributes that turn
+%% aggregation and superlative questions into one GSQL query.
+erDiagram
+    EVENT ||--o{ GAMES : AT_GAMES
+    EVENT ||--o{ SPORT : IN_SPORT
+    EVENT ||--o{ VENUE : HELD_AT
+    EVENT ||--o{ ATHLETE : WON_GOLD
+    EVENT ||--o{ ATHLETE : WON_SILVER
+    EVENT ||--o{ ATHLETE : WON_BRONZE
+    ATHLETE ||--o{ NATION : REPRESENTS
+    EVENT ||--o| EVENT : PRECEDED_BY
+    GAMES ||--o| GAMES : PRECEDED_BY
+    CHUNK }o--|| EVENT : "doc_id (attribute)"
+
+    EVENT {
+        string id PK "= corpus doc_id"
+        string title "exact-match answers are this string"
+        string sport
+        string games_id "2012-Summer"
+        string venue
+        string date_raw "free text, as the corpus writes it"
+        int competitors "-1 when absent"
+        int nations "-1 when absent"
+        string gold_raw "medal cell verbatim"
+        string silver_raw
+        string bronze_raw
+    }
+    GAMES {
+        string id PK "2012-Summer"
+        int year
+        string season
+    }
+    ATHLETE {
+        string id PK
+        string name
+    }
+    VENUE {
+        string id PK
+        string name
+    }
+    SPORT {
+        string id PK
+        string name
+    }
+    NATION {
+        string id PK "NOC code"
+    }
+    CHUNK {
+        string id PK
+        string doc_id
+        int ordinal
+        string text
+        vector emb "384 dims, COSINE"
+    }

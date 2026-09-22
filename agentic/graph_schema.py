@@ -84,6 +84,20 @@ def squash(text: str | None) -> str:
     return _NON_ALNUM.sub("", fold(text))
 
 
+def is_number_token(token: str) -> bool:
+    """Whether one token of a `contains` value must match as a whole number.
+
+    `contains` is token-wise so that a question's "Luge Track Beijing" reaches
+    the corpus's "Luge TrackBeijing", and for words that tolerance is harmless.
+    For numbers it is not: the token "6" occurs inside "2016" and "16", so a
+    filter on "6 August 2016" matched every event at a venue that year (17 at
+    Carioca Arena 3, one of them right). A run of ASCII digits therefore has to
+    match with no digit on either side. Both backends ask this one function, so
+    a value means the same thing wherever the predicate runs.
+    """
+    return token.isascii() and token.isdigit()
+
+
 def coerce_value(field: str, value):
     """A predicate value in the type the field actually holds.
 

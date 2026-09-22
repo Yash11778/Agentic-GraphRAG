@@ -146,3 +146,38 @@ def test_medal_lookup_and_edition_step(tools):
     assert step.data["games"]["id"] == "2008-Summer"
     assert tools.edition_step("2008-Summer", "previous").status == "empty"
     assert tools.edition_step("2008-Summer", "next").data["games"]["id"] == "2012-Summer"
+
+
+def test_contains_matches_a_number_only_as_a_whole_number(backend):
+    # "6" occurs inside "16" and "2016"; a date filter must not match on that.
+    hits = backend.find("Event", [("date_raw", "contains", "6 August")])
+    assert hits == []
+    assert [v["id"] for v in backend.find("Event", [("date_raw", "contains", "10 August 2008")])] == ["E3"]
+    assert [v["id"] for v in backend.find("Event", [("date_raw", "contains", "0 August")])] == []
+    # Words keep the joined-word tolerance; only digit runs are bounded.
+    assert [v["id"] for v in backend.find("Event", [("venue", "contains", "Track Beijing")])] == ["E6"]
+    # A number followed by a letter is still a whole number.
+    assert [v["id"] for v in backend.find("Event", [("event_name", "contains", "57")])] == ["E2"]
+
+
+def test_tools_reuse_vertices_a_tool_already_returned(backend):
+    from agentic.tools.tools import Tools
+
+    calls = []
+    original = backend.get
+
+    class Counting:
+        def __getattr__(self, name):
+            return getattr(backend, name)
+
+        def get(self, vtype, vid):
+            calls.append(vid)
+            return original(vtype, vid)
+
+    tools = Tools(Counting())
+    tools.graph_filter("Event", [("games_id", "eq", "2012-Summer")])
+    assert tools.vertex("Event", "E1")["title"].startswith("Fencing")
+    assert calls == []                       # served from the filter's rows
+    assert tools.vertex("Event", "E4")["id"] == "E4"
+    assert tools.vertex("Event", "E4")["id"] == "E4"
+    assert calls == ["E4"]                   # fetched once, then cached

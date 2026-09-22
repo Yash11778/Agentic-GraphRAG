@@ -8,6 +8,7 @@
     python eval2/run_public.py --out data/results/check.jsonl --redo ...
                                                         # a side run, headline file untouched
     python eval2/run_public.py --compact                # drop superseded rows from the file
+    python eval2/run_public.py --summarise              # rewrite the summary, run nothing
 
 Results append to `data/results/public.jsonl`, one row per (question, pipeline),
 and a rerun skips what is already there. That matters more than it looks: a
@@ -16,6 +17,11 @@ losing an hour of completed work to one timeout would push the whole schedule.
 
 Failures are recorded as rows with `status="error"`, never dropped. A silently
 shorter result file is how a benchmark starts flattering itself (LOCKED-6).
+
+Every row is stamped with the backend and model that produced it, and the
+summary's labels are derived from the rows (eval2/provenance.py). A resume onto a
+file written against the other backend is refused: the three-way comparison is
+only fair if all of its rows read from the same place.
 """
 from __future__ import annotations
 
@@ -28,10 +34,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from agentic.config import PUBLIC_QUESTIONS, RESULTS_DIR, graph_backend_name
+from agentic.config import PUBLIC_QUESTIONS, RESULTS_DIR, graph_backend_name, llm_model_name
 from agentic.llm import LLMClient, QuotaExhausted
 from agentic.pipelines import agentic, graphrag, rag
 from agentic.tools.tools import Tools
+from eval2.provenance import check_resumable, of_rows, stamp
 from eval2.score import cost_of_agency, score_row, summarise
 
 PIPELINES = {"rag": rag, "graphrag": graphrag, "agentic": agentic}
@@ -82,12 +89,18 @@ def main() -> None:
     ap.add_argument("--compact", action="store_true",
                     help="rewrite the results file keeping the latest row per "
                          "(question, pipeline), then exit")
+    ap.add_argument("--summarise", action="store_true",
+                    help="rewrite the summary from the headline file, run nothing")
     args = ap.parse_args()
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     results_file: Path = args.out
     if args.compact:
         compact(results_file)
+        return
+    if args.summarise:
+        write_summary(list(load_done(RESULTS_FILE).values()))
+        print(f"wrote {SUMMARY_FILE}")
         return
     if args.fresh:
         results_file.unlink(missing_ok=True)
@@ -99,11 +112,15 @@ def main() -> None:
         wanted = set(args.qids)
         questions = [q for q in questions if q["qid"] in wanted]
     done = {} if args.redo else load_done(results_file, include_errors=False)
+    backend, model = graph_backend_name(), llm_model_name()
+    # Whatever is already in the file must have been produced the way these
+    # rows will be, redo or not: --redo replaces rows, it does not relabel them.
+    check_resumable(load_done(results_file).values(), backend, model)
     tools, llm = Tools(), LLMClient()
 
     todo = [(q, name) for q in questions for name in args.pipelines
             if (q["qid"], name) not in done]
-    print(f"backend={graph_backend_name()} model={llm.settings.model} "
+    print(f"backend={backend} model={llm.settings.model} "
           f"credentials={len(llm.settings.all_keys)}")
     print(f"{len(questions)} questions x {len(args.pipelines)} pipelines "
           f"= {len(questions) * len(args.pipelines)} runs, {len(todo)} to do\n")
@@ -126,7 +143,7 @@ def main() -> None:
                 result = {"qid": question["qid"], "question": question["question"],
                           "pipeline": name, "answer": "", "status": "error",
                           "error": f"{type(exc).__name__}: {exc}", "trace": []}
-            row = score_row(result, question)
+            row = stamp(score_row(result, question), backend, model)
             row["raw"] = result
             out.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
             out.flush()
@@ -138,10 +155,7 @@ def main() -> None:
     rows = list(load_done(results_file).values())
     summary = summarise(rows)
     if results_file == RESULTS_FILE:
-        payload = {"summary": summary, "cost_of_agency": cost_of_agency(summary),
-                   "n_rows": len(rows), "model": llm.settings.model,
-                   "backend": graph_backend_name()}
-        SUMMARY_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        write_summary(rows, summary)
 
     print(f"\nfinished in {(time.perf_counter() - started) / 60:.1f} min")
     print(f"{'pipeline':<10}{'exact':>8}{'lenient':>9}{'tokens':>9}{'ground F1':>11}"
@@ -152,6 +166,15 @@ def main() -> None:
               f"{stats['avg_steps']:>7.1f}{stats['median_active_s']:>10.1f}")
     print(f"\nwrote {results_file}" + (f" and {SUMMARY_FILE}"
                                         if results_file == RESULTS_FILE else ""))
+
+
+def write_summary(rows: list[dict], summary: dict | None = None) -> dict:
+    """The headline summary, labelled from the rows it summarises."""
+    summary = summary if summary is not None else summarise(rows)
+    payload = {"summary": summary, "cost_of_agency": cost_of_agency(summary),
+               "n_rows": len(rows), **of_rows(rows)}
+    SUMMARY_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return payload
 
 
 def compact(path: Path) -> None:

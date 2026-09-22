@@ -1,0 +1,32 @@
+%% The orchestrator loop for one question. Every box is a recorded trace step.
+flowchart TD
+    classDef llm fill:#e6f6ef,stroke:#1baf7a,color:#16150f
+    classDef db fill:#e8f1fb,stroke:#2a78d6,color:#16150f
+    classDef gate fill:#fdeee7,stroke:#eb6834,color:#16150f
+    classDef stop fill:#f7f6f3,stroke:#52514e,color:#16150f
+
+    q([question]) --> plan["PLAN (1 model call, JSON)<br/>route: fast_path | investigate<br/>gap: what must be found"]:::llm
+    plan -->|fast_path| budgetS["budget: 4 steps · 10k tokens · 60s"]:::stop
+    plan -->|investigate| budgetL["budget: 8 steps · 20k tokens · 150s"]:::stop
+    budgetS --> sel
+    budgetL --> sel
+
+    sel["SELECT (model call with 8 tool schemas)<br/>sees: question · evidence summary · open gap · steps left"]:::llm
+    sel -->|tool call| exec["EXECUTE one primitive<br/>graph_filter · graph_aggregate · edition_step · …<br/>runs in TigerGraph, not in the model"]:::db
+    exec --> ledger["EVIDENCE LEDGER<br/>dedup by doc_id · per-predicate cardinality<br/>compact result (≤900 tokens) back to model"]:::db
+    ledger --> escalate{"fast path came<br/>back empty?"}
+    escalate -->|yes| full["escalate to full budget<br/>(recorded as strategy change)"]:::gate --> decide
+    escalate -->|no| decide
+
+    decide{"DECIDE — stop reason, in order"}:::stop
+    decide -->|"evidence answers it"| sel
+    decide -->|"coverage_complete"| answer
+    decide -->|"no_progress (2 barren steps)"| fail
+    decide -->|"unrecoverable (3 empty/error)"| fail
+    decide -->|"budget_exhausted"| fail
+
+    sel -->|"answer, no tool call"| gate{"COVERAGE GATE<br/>listed == counted<br/>for the same predicates?"}:::gate
+    gate -->|no| pushback["'Not yet: DB counts N, you listed M'<br/>→ back to SELECT"]:::gate --> sel
+    gate -->|yes or n/a| verbatim["VERBATIM CHECK<br/>answer ≡ a cited document's string<br/>modulo separators → use the stored string"]:::gate
+    verbatim --> answer([answer + citations + trace]):::stop
+    fail([INSUFFICIENT_EVIDENCE<br/>scored as wrong, never guessed]):::stop
