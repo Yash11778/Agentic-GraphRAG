@@ -39,9 +39,9 @@ const ROUTE = {
 };
 const SECTIONS = [
   ["results", "Results"],
+  ["explorer", "Try a question"],
   ["cost", "Cost of agency"],
   ["hidden", "Held-out set"],
-  ["explorer", "Question explorer"],
 ];
 
 // Backend names as the result rows record them, in the words the page uses.
@@ -101,6 +101,13 @@ export default function App() {
       .catch((e) => setError(String(e)));
   }, []);
 
+  // The sections render only once report.json arrives, so a shared link such as
+  // "#explorer" has nothing to scroll to on first paint; jump once they exist.
+  useEffect(() => {
+    if (!report || !window.location.hash) return;
+    document.getElementById(window.location.hash.slice(1))?.scrollIntoView();
+  }, [report]);
+
   return (
     <>
       <TopBar />
@@ -115,9 +122,9 @@ export default function App() {
         {report && (
           <>
             <Results report={report} />
+            <Explorer report={report} />
             <Cost report={report} />
             <Hidden report={report} />
-            <Explorer report={report} />
           </>
         )}
       </main>
@@ -139,7 +146,9 @@ function TopBar() {
         </div>
         <nav>
           {SECTIONS.map(([id, label]) => (
-            <a key={id} href={`#${id}`}>{label}</a>
+            <a key={id} href={`#${id}`} className={id === "explorer" ? "nav-cta" : undefined}>
+              {label}
+            </a>
           ))}
         </nav>
       </div>
@@ -158,6 +167,9 @@ function Hero({ report }) {
           ways. Same model, same temperature, same output budget for all three, so the
           only thing that differs between them is control flow.
         </p>
+        <a className="cta" href="#explorer">
+          Pick any of the 100 questions and see all three answers &darr;
+        </a>
       </div>
       {s && (
         <dl className="hero-stats">
@@ -175,7 +187,9 @@ function Hero({ report }) {
             <dt>Held-out questions</dt>
             <dd>{report.hidden.answered}/{report.hidden.n}</dd>
             <span>
-              answered, the rest declined
+              {report.hidden.answered === report.hidden.n
+                ? "answered, none declined"
+                : "answered, the rest declined"}
               {report.hidden.routes?.fast_path != null &&
                 ` · ${report.hidden.routes.fast_path} took the fast path`}
             </span>
@@ -332,7 +346,7 @@ function Cost({ report }) {
   }));
 
   return (
-    <section id="cost" className="band alt">
+    <section id="cost" className="band">
       <SectionHead
         eyebrow="Cost of agency"
         title="Where the extra steps pay for themselves"
@@ -415,7 +429,7 @@ function Hidden({ report }) {
   const byType = Object.entries(h.by_qtype || {});
   const byPipeline = Object.entries(h.by_pipeline || {});
   return (
-    <section id="hidden" className="band">
+    <section id="hidden" className="band alt">
       <SectionHead
         eyebrow="Held-out set"
         title={`${h.answered} of ${h.n} held-out questions answered`}
@@ -431,7 +445,10 @@ function Hidden({ report }) {
           <div>
             <dt>Answered</dt>
             <dd>{h.answered}/{h.n}</dd>
-            <span>the rest declined, never guessed</span>
+            <span>
+              {h.answered === h.n ? "none declined, none guessed"
+                : "the rest declined, never guessed"}
+            </span>
           </div>
           <div>
             <dt>Tokens per question</dt>
@@ -505,7 +522,7 @@ function Explorer({ report }) {
   const agent = question.pipelines.agentic;
 
   return (
-    <section id="explorer" className="band">
+    <section id="explorer" className="band alt">
       <SectionHead
         eyebrow="Question explorer"
         title="Follow one investigation, step by step"
@@ -513,8 +530,8 @@ function Explorer({ report }) {
               that cost, and why it stopped. Nothing here is reconstructed afterwards."
       />
 
-      <label className="field">
-        <span>Choose a question &mdash; {questions.length} available</span>
+      <label className="field picker">
+        <span>Choose a question ({questions.length} available)</span>
         <select value={qid} onChange={(e) => setQid(e.target.value)}>
           {questions.map((q) => (
             <option key={q.qid} value={q.qid}>
@@ -705,8 +722,8 @@ function SiteFooter({ report }) {
     <footer className="site-footer">
       <div className="bar">
         <p>
-          Figures are read from the committed result files: 300 public runs and 50
-          held-out questions. Latency is the median per question, excluding time
+          Figures are read from the committed result files: 300 public runs and
+          150 held-out runs. Latency is the median per question, excluding time
           spent waiting on the provider&apos;s rate limit. Nothing on this page is
           computed live.
           {prov && ` The public runs read from ${backendName(prov.public.backend)} so

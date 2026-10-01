@@ -17,21 +17,21 @@ All three call the **same** retrieval tools and run under the **same** generatio
 budget. They differ only in control flow, which is the only way a token or accuracy
 delta can be attributed to agency rather than to one pipeline having better plumbing.
 
-**At a glance** (final build, every number from a full run; details under
-[Results](#results)):
+**At a glance** (final build, every number from a full run on TigerGraph; details
+under [Results](#results)):
 
 | | RAG | GraphRAG | **Agentic GraphRAG** |
 |---|---:|---:|---:|
-| Exact match, 100 public questions | 53% | 48% | **98%** (99% on TigerGraph) |
-| Tokens per question | 4,900 | 5,412 | **4,270** |
-| Retrieved context per question | 4,658 | 5,205 | **144** |
-| Declined to answer | 13% | 19% | 1% |
-| Hidden 50, answered on TigerGraph | 42 / 50 | 42 / 50 | **50 / 50** |
+| Exact match, 100 public questions | 52% | 47% | **99%** |
+| Tokens per question | 4,957 | 5,484 | **4,284** |
+| Retrieved context per question | 4,655 | 5,206 | **140** |
+| Declined to answer | 14% | 20% | 0% |
+| Hidden 50, answered | 42 / 50 | 42 / 50 | **50 / 50** |
 
 The agent is the most accurate pipeline and also the cheapest, because counting and
 comparison run inside TigerGraph instead of in the model's context window. The one
-place it is overkill is a question a single document answers, where plain RAG is
-five points better; the agent routes those to a short path.
+place it is overkill is a question a single document answers: there plain RAG is
+just as accurate, and the agent routes those to a short path.
 
 ---
 
@@ -66,7 +66,7 @@ changed while building, is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 corpus.jsonl
      │
      ▼  deterministic infobox parsing, zero LLM
-typed property graph  ──────▶  TigerGraph (GSQL) + Vector DB
+typed property graph  ──────▶  TigerGraph (GSQL + native vector index)
      │
      ▼
 shared tool layer:  vector_search · doc_fetch · entity_link · graph_neighbors
@@ -151,7 +151,7 @@ records, and `--all` puts the three pipelines' answers and costs side by side. W
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest        # 72 tests, no network, under a second
+.venv/bin/python -m pytest        # 73 tests, no network, under a second
 .venv/bin/ruff check .            # lint, configured in pyproject.toml
 ```
 
@@ -250,31 +250,33 @@ pipeline, and no question-type handler exists on the scored path.
 ## Results
 
 100 public questions, all three pipelines, one model and one generation budget
-(`openai/gpt-oss-120b`, temperature 0, 1024 output tokens). Reproduce with
-`python eval2/run_public.py`. Latency is the median per question, net of time
-slept on the provider's rate limit.
+(`openai/gpt-oss-120b`, temperature 0, 1024 output tokens), all against
+TigerGraph (`GRAPH_BACKEND=tigergraph`): every tool call is answered by the
+installed GSQL queries and the vector index on Savanna. Reproduce with
+`GRAPH_BACKEND=tigergraph python eval2/run_public.py`. Latency is the median per
+question, net of time slept on the provider's rate limit.
 
 | Pipeline | Exact match | Tokens / question | Context tokens | Grounding F1 | Steps | Median s | Refused |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| P1 RAG | 53% | 4,900 | 4,658 | 0.360 | 1.0 | 1.0 | 13% |
-| P2 GraphRAG | 48% | 5,412 | 5,205 | 0.096 | 3.6 | 1.6 | 19% |
-| **P3 Agentic** | **98%** | **4,270** | **144** | **0.774** | 2.2 | 2.3 | 1% |
+| P1 RAG | 52% | 4,957 | 4,655 | 0.359 | 1.0 | 1.3 | 14% |
+| P2 GraphRAG | 47% | 5,484 | 5,206 | 0.096 | 3.6 | 2.3 | 20% |
+| **P3 Agentic** | **99%** | **4,284** | **140** | **0.776** | 2.2 | 3.0 | 0% |
 
 **The agent is both more accurate and cheaper.** It does not pay for its
 reasoning with context: counting and comparison run in the database, so it puts
 under 200 tokens of retrieved text in front of the model where the baselines put
-about 5,000. Its extra second per question is two model calls, not retrieval:
-tool calls take 2–15 ms.
+about 5,000. Its extra 1.7 s per question over RAG is one more model call and a
+Savanna round trip per tool call (median 274 ms), not retrieval volume.
 
 ### Where the difference comes from
 
 | qtype | n | RAG | GraphRAG | Agentic | tokens R / G / A | agent context |
 |---|---:|---:|---:|---:|---:|---:|
-| lookup | 19 | 100% | 89% | 95% | 4,663 / 5,384 / 4,028 | 130 |
-| temporal | 22 | 86% | 68% | **100%** | 4,670 / 5,394 / 4,105 | 201 |
-| multi_hop | 28 | 46% | 54% | **96%** | 5,077 / 5,241 / 4,142 | 209 |
-| aggregation | 21 | 10% | 5% | **100%** | 5,066 / 5,565 / 3,892 | 6 |
-| superlative | 10 | 0% | 0% | **100%** | 5,016 / 5,658 / 6,248 | 152 |
+| lookup | 19 | 100% | 89% | **100%** | 4,732 / 5,451 / 4,071 | 118 |
+| temporal | 22 | 82% | 68% | **100%** | 4,726 / 5,463 / 4,107 | 192 |
+| multi_hop | 28 | 50% | 50% | **96%** | 5,137 / 5,328 / 4,132 | 209 |
+| aggregation | 21 | 5% | 5% | **100%** | 5,118 / 5,631 / 3,931 | 6 |
+| superlative | 10 | 0% | 0% | **100%** | 5,049 / 5,721 / 6,246 | 152 |
 
 Aggregation and superlative are the benchmark's point. One aggregation question
 spans 43 gold documents; no top-k window answers it, and both baselines sit near
@@ -287,32 +289,33 @@ Against GraphRAG, per question type:
 
 | qtype | Δ accuracy | Δ tokens | verdict |
 |---|---:|---:|---|
-| aggregation | +95% | -1,673 | strictly better |
-| superlative | +100% | +590 | worth the cost |
-| multi_hop | +43% | -1,099 | strictly better |
-| temporal | +32% | -1,290 | strictly better |
-| lookup | +5% | -1,356 | strictly better |
+| aggregation | +95% | -1,700 | strictly better |
+| superlative | +100% | +526 | worth the cost |
+| multi_hop | +46% | -1,197 | strictly better |
+| temporal | +32% | -1,356 | strictly better |
+| lookup | +11% | -1,380 | strictly better |
 
-Against RAG the picture is the same except for `lookup`, where RAG is 5 points
-better and the agent is only slightly cheaper: **for a question one document
-answers, the agent is overkill**, and the routing layer exists because of it.
-51 of 100 questions took the fast path.
+Against RAG the picture is the same except for `lookup`, where both are at 100%
+and the agent is 661 tokens cheaper but no more accurate: **for a question one
+document answers, the agent is overkill**, and the routing layer exists because
+of it. 53 of 100 questions took the fast path.
 
-### What the two misses are
+### What the one miss is
 
-One is a refusal (`INSUFFICIENT_EVIDENCE`, scored as wrong by design): the
-filter returned the one right event, nations count included, and the model
-declined anyway. The other is a venue-and-date question where two events share
-the venue and the exact date string; the agent picked the right one and copied
-its four-name medal cell with one letter wrong (`Schempt` for `Schempp`). The
-verbatim check does not touch a difference in a letter, by design, so it stays
-wrong. The tool-layer ceiling from the question text alone is 99%, so the agent
-is within one point of what the graph can express.
+`pub-099` is a venue-and-date question where two events share the venue and the
+exact date string. The agent copied the right four-name medal cell exactly and
+then appended a name from the other event it found at that venue that day, so
+strict exact match scores it wrong. The organisers have said multi-hop scoring
+accepts any event held at that venue in that range, and any member of a
+gold-medal team, so their scorer may well count it; this repository keeps the
+strict score. It is also the one question the tool-layer ceiling does not reach
+from the question text alone (99%), so the agent is at the ceiling of what the
+graph can express.
 
 **Variance.** Temperature is 0, but tool-calling is not fully deterministic:
-between the 96% run and this one, three questions changed answer for reasons
-unrelated to the code change (one lookup was answered, another lookup was
-refused, and one ambiguous venue-and-date question went from a refusal to a
+between the 96% run and the final build, three questions changed answer for
+reasons unrelated to the code change (one lookup was answered, another lookup
+was refused, and one ambiguous venue-and-date question went from a refusal to a
 misspelt copy). Single-run numbers should be read with that in mind; the
 per-type margins over the baselines are far larger than the variance.
 
@@ -340,28 +343,35 @@ And the verbatim check could replace an answer that named both the medallist
 and the event with the event's title; it now stands down whenever the answer
 contains a medal cell of a cited event. Both are described in
 [docs/ARCHITECTURE.md §11b](docs/ARCHITECTURE.md). The agentic pipeline was
-re-run in full on the fixed build, which is the 98% above; the baselines do not
-touch the changed code and were not re-run.
+re-run in full on the fixed build, on both backends; the baselines do not touch
+the changed code.
 
-### The same 100 questions on TigerGraph
+### The same 100 questions on the local backend
 
-The table above was produced with the local backend so that all three
-pipelines read from the same place. The agent was then run again over the same
-100 questions with `GRAPH_BACKEND=tigergraph`, every tool call answered by the
-installed GSQL queries and the vector index on Savanna
-(`python eval2/run_public.py --pipelines agentic --out
-data/results/public_tigergraph_check.jsonl`):
+The headline file `data/results/public.jsonl` holds two TigerGraph runs of the
+final build: the agent's, and the two baselines', which were re-run on
+TigerGraph on 2026-09-25 because the organisers asked for TigerGraph's own
+vector search to be the one scored. Every row is stamped `tigergraph`. All
+three pipelines were also run over the same 100 questions against the in-memory
+backend, which reads the same graph from `data/graph/*.jsonl` and scans the
+same embeddings exhaustively; those rows are kept as a check in
+`data/results/public_local.jsonl`:
 
-| Backend | Exact match | Tokens / question | Median s | Answers identical to the local run |
-|---|---:|---:|---:|---:|
-| local | 98% | 4,270 | 2.3 | |
-| TigerGraph | 99% | 4,284 | 3.0 | 98 of 100 |
+| Pipeline | TigerGraph (headline) | local | Answers identical |
+|---|---:|---:|---:|
+| RAG | 52% | 53% | 89 of 100 |
+| GraphRAG | 47% | 48% | 91 of 100 |
+| Agentic | 99% | 98% | 98 of 100 |
 
-The two answers that differ are the two local misses: the lookup the model
-refused locally it answered on TigerGraph, and the misspelt medal cell is
-misspelt identically on both. The extra 0.7 s is network: a tool call on
-Savanna takes about 285 ms against 2 to 15 ms in memory. The file is kept as a
-check beside the headline results, not merged into them.
+The agent's two differing answers are the two local misses: a lookup the model
+refused locally it answered on TigerGraph, and on the venue-and-date question
+it misspelt the medal cell locally (`Schempt` for `Schempp`) where on TigerGraph
+it copied it exactly and appended a second name. The baselines put 5,000 tokens
+of context in front of the model and read from an approximate vector index on
+TigerGraph against an exhaustive scan locally, so more of their answers move;
+the net is one point each, in neither pipeline's favour. The backend adds
+latency, not error: a tool call on Savanna takes a median 274 ms against 2 to
+15 ms in memory.
 
 ### Hidden set
 
@@ -404,14 +414,14 @@ events, one day) now names both gold medallists rather than one.
 |---|---|
 | Ingestion, property graph | done, coverage measured |
 | TigerGraph schema, GSQL primitives, load | done, counts verified |
-| Both backends | done, 38/38 parity checks including vector search and the final predicate semantics; the public set re-run on TigerGraph agrees with the local run on 98/100 answers |
+| Both backends | done, 38/38 parity checks including vector search and the final predicate semantics; the agent's public answers agree across backends on 98/100 |
 | Vector index | done, 19,832 chunks, local ONNX embeddings |
 | Three pipelines | done |
 | Agent harness, orchestrator, coverage gate, routing | done |
-| Public benchmark | done, 300 runs on the final build; the agent re-run on TigerGraph in `data/results/public_tigergraph_check.jsonl` (99/100) |
+| Public benchmark | done, 300 runs on the final build against TigerGraph (agent 99/100); the same 300 on the local backend in `data/results/public_local.jsonl` |
 | Hidden-50 bundle | done, `data/results/submission.json`: all three pipelines x 50 on TigerGraph, agent 50/50 answered, baselines 42/50 |
 | Dashboard | done, static, reads `frontend/public/report.json` |
-| Unit tests | done, 72, `python -m pytest` |
+| Unit tests | done, 73, `python -m pytest` |
 | Demo video | delivered with the submission, not in the repo |
 
 ## Attribution

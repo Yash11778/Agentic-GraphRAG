@@ -461,3 +461,62 @@ tbody tr:hover td { background: var(--band); }
   .bar { flex-wrap: wrap; height: auto; padding-top: 12px; padding-bottom: 12px; }
   .site-footer .stack { white-space: normal; }
 }
+
+/* ── Finding the explorer ─────────────────────────────────────────────── */
+
+html { scroll-behavior: smooth; }
+/* Anchor targets land below the sticky top bar instead of under it. */
+section[id] { scroll-margin-top: 62px; }
+
+.topbar nav a.nav-cta {
+  color: #fff;
+  background: var(--agentic);
+  padding: 5px 12px;
+  border-bottom: 0;
+  font-weight: 600;
+}
+.topbar nav a.nav-cta:hover { background: var(--up); color: #fff; }
+
+.cta {
+  display: inline-block;
+  margin-top: 22px;
+  padding: 12px 20px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.cta:hover { background: var(--up); }
+.cta:focus-visible, .topbar nav a.nav-cta:focus-visible { outline: 2px solid var(--rag); outline-offset: 2px; }
+
+.picker {
+  background: var(--page);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--agentic);
+  padding: 18px 20px;
+}
+.field.picker span {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+}
+.picker select {
+  border: 2px solid var(--agentic);
+  font-size: 16px;
+  line-height: 1.4;
+  font-family: inherit;
+}
+.picker select:hover { border-color: var(--up); }
+
+@media (max-width: 640px) {
+  /* One row that scrolls sideways keeps the sticky bar short. */
+  .topbar nav { width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .topbar nav a { white-space: nowrap; }
+  section[id] { scroll-margin-top: 120px; }
+  .topbar nav a.nav-cta { padding: 4px 9px; }
+  .cta { display: block; text-align: center; }
+  .picker { padding: 14px; }
+}

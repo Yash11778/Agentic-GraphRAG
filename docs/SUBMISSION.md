@@ -4,15 +4,15 @@
 
 | Item | Where | Status |
 |---|---|---|
-| Source repository | this repo — commit and push the 2026-09-18 working tree before the deadline | pending |
+| Source repository | this repo — push to `origin/main` before the deadline | pending |
 | Hidden-50 answers with traces | `data/results/submission.json` — 150 rows: every one of the 50 held-out questions answered by all three pipelines with its tokens, latency and trace, as the organisers asked. Agent 50/50 answered, RAG and GraphRAG 42/50. `backend: tigergraph` is derived from the rows, each stamped at run time | done |
-| Public benchmark, 3 pipelines × 100 | `data/results/public.jsonl`, `public_summary.json` — agentic 98%, final build | done |
-| Public set, agent on TigerGraph | `data/results/public_tigergraph_check.jsonl` — 99/100, scored path | done |
+| Public benchmark, 3 pipelines × 100 | `data/results/public.jsonl`, `public_summary.json` — all 300 rows on TigerGraph, final build: agentic 99%, RAG 52%, GraphRAG 47% | done |
+| Public set on the local backend | `data/results/public_local.jsonl` — the same 300 in memory (98 / 53 / 48), a parity check | done |
 | Architecture, agent-loop and schema diagrams | `docs/diagrams/` — tracked in the repo (`.mmd` sources and rendered `.png`), since the architecture diagram is a required deliverable; the README also carries the text diagram | done |
 | Demo video | recorded from `docs/DEMO_SCRIPT.md`, which stays out of the repo (gitignored); the walkthrough is the video itself | to record |
 | Dashboard | `frontend/` (static; `npm run build`, deploys on Vercel via `vercel.json`) | done |
 | Write-up | `README.md` + `docs/ARCHITECTURE.md` | done |
-| Tests | `python -m pytest` (72 tests, no network) | passing |
+| Tests | `python -m pytest` (73 tests, no network) | passing |
 
 ## Reproducing the numbers
 
@@ -25,17 +25,17 @@ With the credentials in `.env` rotated by the client, each run is minutes, not d
    the provider's rate limiting, and the 2026-09-22 run met Groq timeouts that
    cost 48 min for 100 baseline rows. The run resumes, and rows that error are
    not recorded as done, so re-running the command picks them up.
-2. `python eval2/run_public.py --pipelines agentic --redo` — 100 questions, ~430k
-   tokens, about 5 min on the local backend. The baselines do not need rerunning
-   unless their path changes.
-3. `GRAPH_BACKEND=tigergraph python eval2/run_public.py --pipelines agentic --redo
-   --out data/results/public_tigergraph_check.jsonl` — the same 100 on Savanna,
-   about 7 min, written beside the headline file rather than into it.
+2. `GRAPH_BACKEND=tigergraph python eval2/run_public.py --fresh` — 300 runs on
+   Savanna, ~1.4M tokens. The agent takes about 7 min; the baselines took 37 min
+   for 200 rows on 2026-09-25.
+3. `python eval2/run_public.py --out data/results/public_local.jsonl --fresh` —
+   the same 300 on the local backend, a parity check beside the headline file.
 4. `python eval2/report.py && (cd frontend && npm run build)`.
 
-All four have run on the final build (2026-09-15): public agentic 98%, 99% on
-TigerGraph, hidden 50/50 answered. The result files, `report.json` and the README
-tables all reflect them. The rule throughout: a headline number is replaced only by
+All have run on the final build: the agent's public rows and the hidden set on
+2026-09-15 and 2026-09-22, the public baselines on TigerGraph on 2026-09-25.
+Public agentic 99% on TigerGraph (98% local), hidden 50/50 answered. The result
+files, `report.json` and the README tables all reflect them. The rule throughout: a headline number is replaced only by
 a full re-run, never by re-running failures.
 
 Derived files are rebuilt from the rows without running anything:
@@ -65,11 +65,11 @@ happened once (ARCHITECTURE §11b, "Provenance is on the row").
 | Likely criterion | Evidence |
 |---|---|
 | Agentic effectiveness | per-step trace (`agent`, `tool`, `retrieval_method`, `strategy_change`, `stop_reason`) in every result row; trace explorer in the dashboard |
-| Use of TigerGraph | `agentic/ingest/schema.gsql`, `agentic/tools/queries.gsql`; `eval2/validate_backends.py` 38/38 parity (rerun 2026-09-15 after the whole-number `contains` change); vector index on `Chunk.emb`; the 100 public questions re-run on TigerGraph in `data/results/public_tigergraph_check.jsonl` (99/100, 98 answers identical to the local run) |
+| Use of TigerGraph | `agentic/ingest/schema.gsql`, `agentic/tools/queries.gsql`; `eval2/validate_backends.py` 38/38 parity (rerun 2026-09-15 after the whole-number `contains` change); vector index on `Chunk.emb`; all 300 public runs scored on TigerGraph, its own vector search included (agent 99/100); the local re-run in `data/results/public_local.jsonl` agrees on 98 of the agent's 100 answers |
 | Accuracy | strict exact match, per qtype; grounding P/R/F1 against gold doc ids |
 | Token efficiency | context / input / output split per pipeline; "where the tokens go" chart |
 | When is agency overkill | cost-of-agency chart, per qtype, against both baselines; the `lookup` exception stated plainly; fast-path routing |
-| Engineering quality | deterministic ingestion with measured coverage; two backends behind one interface; 72 unit tests; ruff-clean; resumable runners; every result row stamped with its backend and model |
+| Engineering quality | deterministic ingestion with measured coverage; two backends behind one interface; 73 unit tests; ruff-clean; resumable runners; every result row stamped with its backend and model |
 | Honesty | variance note in README; refusals counted as wrong; pre-fix vs post-fix numbers labelled; a token-saving prompt rewrite that cost accuracy was measured, reverted and recorded (ARCHITECTURE §11b) |
 
 ## What changed in the final pass (for the Q&A)

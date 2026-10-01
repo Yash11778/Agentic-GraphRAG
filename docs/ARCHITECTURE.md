@@ -500,18 +500,23 @@ and `public_tigergraph_check.jsonl` is unambiguously TigerGraph, and
 `public.jsonl` is local (295 of 300 rows by latency, all 110 agentic tool
 steps at or under 12 ms, and the run's own log line `backend=local`; the five
 exceptions are single-step RAG rows whose one vector search included loading
-the embedding model). No answer, token count or trace was changed.
+the embedding model). No answer, token count or trace was changed. On
+2026-09-25 the public baselines were re-run on TigerGraph, the headline
+`public.jsonl` became the all-TigerGraph file (those rows plus the former
+`public_tigergraph_check.jsonl`), and the local file was kept as
+`public_local.jsonl`.
 
 ---
 
 ## 12. Where the build stands
 
 Final build as of 2026-09-15; result files relabelled with their provenance
-on 2026-09-18 without re-running (§11b). Public: agent 98/100 on the local
-backend, 99/100 on TigerGraph (`data/results/public_tigergraph_check.jsonl`,
-98 answers identical), RAG 53, GraphRAG 48. Hidden: 50/50 answered on
-TigerGraph, `data/results/submission.json`. Backend parity 38/38, tool ceiling
-99% on both backends, 72 unit tests.
+on 2026-09-18 without re-running (§11b). Public, all three pipelines on
+TigerGraph (`data/results/public.jsonl`): agent 99/100, RAG 52, GraphRAG 47;
+on the local backend (`data/results/public_local.jsonl`) 98, 53 and 48, with
+98 of the agent's answers identical. Hidden: 150 rows on TigerGraph,
+`data/results/submission.json`, agent 50/50 answered, baselines 42/50. Backend
+parity 38/38, tool ceiling 99% on both backends, 73 unit tests.
 
 Open, owner organisers: the hidden-50 submission format is not specified, so
 `submission.json` keeps every field the brief names (answer, tokens split three
