@@ -10,7 +10,7 @@
 | Public set on the local backend | `data/results/public_local.jsonl` — the same 300 in memory (98 / 53 / 48), a parity check | done |
 | Architecture, agent-loop and schema diagrams | `docs/diagrams/` — tracked in the repo (`.mmd` sources and rendered `.png`), since the architecture diagram is a required deliverable; the README also carries the text diagram | done |
 | Demo video | recorded from `docs/DEMO_SCRIPT.md`, which stays out of the repo (gitignored); the walkthrough is the video itself | to record |
-| Dashboard | `frontend/` (static; `npm run build`, deploys on Vercel via `vercel.json`) | done |
+| Dashboard | live at https://huggingface.co/spaces/Yash-1903/agentic-graphrag; source in `frontend/` (static, `npm run build`) | done |
 | Write-up | `README.md` + `docs/ARCHITECTURE.md` | done |
 | Tests | `python -m pytest` (73 tests, no network) | passing |
 

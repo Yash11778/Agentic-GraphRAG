@@ -2,6 +2,9 @@
 
 Submission for the **TigerGraph Agentic GraphRAG Hackathon, Round 1**.
 
+**Live dashboard:** [huggingface.co/spaces/Yash-1903/agentic-graphrag](https://huggingface.co/spaces/Yash-1903/agentic-graphrag): results, cost of agency, the held-out
+set, and every question's answers and agent trace.
+
 Three pipelines answer the same 100 questions over one corpus, so the benchmark can
 answer the question the hackathon actually asks: **when does an agentic, multi-step
 investigation beat a single GraphRAG or RAG retrieval, and when is it just more
@@ -420,7 +423,7 @@ events, one day) now names both gold medallists rather than one.
 | Agent harness, orchestrator, coverage gate, routing | done |
 | Public benchmark | done, 300 runs on the final build against TigerGraph (agent 99/100); the same 300 on the local backend in `data/results/public_local.jsonl` |
 | Hidden-50 bundle | done, `data/results/submission.json`: all three pipelines x 50 on TigerGraph, agent 50/50 answered, baselines 42/50 |
-| Dashboard | done, static, reads `frontend/public/report.json` |
+| Dashboard | done, static, reads `frontend/public/report.json`; live at [Hugging Face](https://huggingface.co/spaces/Yash-1903/agentic-graphrag) |
 | Unit tests | done, 73, `python -m pytest` |
 | Demo video | delivered with the submission, not in the repo |
 
