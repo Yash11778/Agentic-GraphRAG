@@ -74,6 +74,7 @@ code { font: 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace; background: 
   border-bottom: 2px solid transparent;
 }
 .topbar nav a:hover { color: var(--ink); border-bottom-color: var(--ink); }
+.topbar nav .short { display: none; }
 
 /* ── Hero ─────────────────────────────────────────────────────────────── */
 
@@ -512,9 +513,11 @@ section[id] { scroll-margin-top: 62px; }
 .picker select:hover { border-color: var(--up); }
 
 @media (max-width: 640px) {
-  /* One row that scrolls sideways keeps the sticky bar short. */
-  .topbar nav { width: 100%; overflow-x: auto; scrollbar-width: none; }
+  /* One row with short labels: all four tabs fit, so nothing hides off-screen. */
+  .topbar nav { width: 100%; justify-content: space-between; align-items: center; gap: 8px; }
   .topbar nav a { white-space: nowrap; }
+  .topbar nav .long { display: none; }
+  .topbar nav .short { display: inline; }
   section[id] { scroll-margin-top: 120px; }
   .topbar nav a.nav-cta { padding: 4px 9px; }
   .cta { display: block; text-align: center; }

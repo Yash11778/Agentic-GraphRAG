@@ -37,11 +37,12 @@ const ROUTE = {
   agentic: "full investigation", fast_path: "fast path",
   fast_path_escalated: "fast path, escalated",
 };
+// [anchor, label, short label for a phone-width bar]
 const SECTIONS = [
-  ["results", "Results"],
-  ["explorer", "Try a question"],
-  ["cost", "Cost of agency"],
-  ["hidden", "Held-out set"],
+  ["results", "Results", "Results"],
+  ["explorer", "Try a question", "Try a question"],
+  ["cost", "Cost of agency", "Cost"],
+  ["hidden", "Held-out set", "Held-out"],
 ];
 
 // Backend names as the result rows record them, in the words the page uses.
@@ -145,9 +146,11 @@ function TopBar() {
           </div>
         </div>
         <nav>
-          {SECTIONS.map(([id, label]) => (
-            <a key={id} href={`#${id}`} className={id === "explorer" ? "nav-cta" : undefined}>
-              {label}
+          {SECTIONS.map(([id, label, short]) => (
+            <a key={id} href={`#${id}`} className={id === "explorer" ? "nav-cta" : undefined}
+               aria-label={label}>
+              <span className="long">{label}</span>
+              <span className="short" aria-hidden="true">{short}</span>
             </a>
           ))}
         </nav>
